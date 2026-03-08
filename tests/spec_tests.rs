@@ -213,6 +213,64 @@ fn values_match(expected: &[ExpectedValue], actual: &[RawValue]) -> bool {
         })
 }
 
+fn try_resolve_spectest_imports(
+    store: &mut Store,
+    module: &Module,
+) -> Result<Vec<ExternalValue>, gabagool::Error> {
+    try_resolve_imports_with_registered(store, module, &[])
+}
+
+fn try_resolve_imports_with_registered(
+    store: &mut Store,
+    module: &Module,
+    registered_exports: &[(&str, &[ExportInstance])],
+) -> Result<Vec<ExternalValue>, gabagool::Error> {
+    module
+        .import_declarations()
+        .iter()
+        .map(|import| {
+            for &(reg_name, exports) in registered_exports {
+                if import.module == reg_name {
+                    for export in exports {
+                        if export.name == import.name {
+                            let kind_ok = matches!(
+                                (&export.value, &import.description),
+                                (ExternalValue::Function { .. }, ImportDescription::Func(_))
+                                    | (ExternalValue::Table { .. }, ImportDescription::Table(_))
+                                    | (ExternalValue::Memory { .. }, ImportDescription::Mem(_))
+                                    | (ExternalValue::Global { .. }, ImportDescription::Global(_))
+                                    | (ExternalValue::Tag { .. }, ImportDescription::Tag(_))
+                            );
+                            if kind_ok {
+                                return Ok(export.value.clone());
+                            } else {
+                                return Err(gabagool::Error::Instantiation(format!(
+                                    "incompatible import type for {}.{}",
+                                    import.module, import.name
+                                )));
+                            }
+                        }
+                    }
+                    return Err(gabagool::Error::Instantiation(format!(
+                        "unknown import {}.{}",
+                        import.module, import.name
+                    )));
+                }
+            }
+            if import.module == "spectest" || import.module == "test" {
+                return Err(gabagool::Error::Instantiation(format!(
+                    "unknown import {}.{}",
+                    import.module, import.name
+                )));
+            }
+            Err(gabagool::Error::Instantiation(format!(
+                "unknown module {}",
+                import.module
+            )))
+        })
+        .collect()
+}
+
 fn resolve_imports_with_registered(
     store: &mut Store,
     module: &Module,
@@ -222,7 +280,6 @@ fn resolve_imports_with_registered(
         .import_declarations()
         .iter()
         .map(|import| {
-            // Try to find the import in registered modules
             for &(reg_name, exports) in registered_exports {
                 if import.module == reg_name {
                     for export in exports {

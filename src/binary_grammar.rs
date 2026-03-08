@@ -72,7 +72,7 @@ pub enum Section {
     Tag(TagSection),
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum HeapType {
     Func,     // 0x70
     Extern,   // 0x6F
@@ -95,14 +95,14 @@ pub enum AddrType {
     I64,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum RefType {
     FuncRef,
     ExternRef,
     Ref { nullable: bool, heap_type: HeapType },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValueType {
     I32,
     I64,
@@ -112,13 +112,13 @@ pub enum ValueType {
     Ref(RefType),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResultType(pub Vec<ValueType>);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionType(pub ResultType, pub ResultType);
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limit {
     pub min: u64,
     pub max: u64,
@@ -174,7 +174,7 @@ pub struct SubType {
     pub composite_type: CompositeType,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Mutability {
     Const,
     Var,

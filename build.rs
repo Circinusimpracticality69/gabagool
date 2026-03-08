@@ -244,6 +244,45 @@ mod spec_tests {
                             .join(format!("unlinkable_{}_{}.wasm", safe_name, unlinkable_idx));
                         fs::write(&wasm_path, bytes).unwrap();
                         let test_name = format!("unlinkable_{}_{}", safe_name, unlinkable_idx);
+
+                        let prereq_registered: Vec<(String, i32)> = registered.clone();
+
+                        let mut prereq_indices: Vec<i32> = Vec::new();
+                        for (_, dep_idx) in &prereq_registered {
+                            if !prereq_indices.contains(dep_idx) {
+                                prereq_indices.push(*dep_idx);
+                            }
+                        }
+                        prereq_indices.sort();
+
+                        let mut setup = String::new();
+                        for pidx in &prereq_indices {
+                            setup.push_str(&format!(
+                                concat!(
+                                    "    let prereq_wasm_{pidx}: &[u8] = include_bytes!(concat!(env!(\"OUT_DIR\"), \"/wasm/{file}_{pidx}.wasm\"));\n",
+                                    "    let prereq_module_{pidx} = Module::new(prereq_wasm_{pidx}).unwrap();\n",
+                                    "    let prereq_imports_{pidx} = setup_spectest_imports(&mut store, &prereq_module_{pidx});\n",
+                                    "    let prereq_instance_{pidx} = store.instantiate(&prereq_module_{pidx}, prereq_imports_{pidx}).unwrap();\n",
+                                    "    let prereq_exports_{pidx}: Vec<ExportInstance> = store.exports(prereq_instance_{pidx}).to_vec();\n",
+                                ),
+                                pidx = pidx,
+                                file = safe_name,
+                            ));
+                        }
+
+                        if !prereq_registered.is_empty() {
+                            setup.push_str(
+                                "    let registered_exports: Vec<(&str, &[ExportInstance])> = vec![",
+                            );
+                            for (name, dep_idx) in &prereq_registered {
+                                setup.push_str(&format!("(\"{}\", &prereq_exports_{}), ", name, dep_idx));
+                            }
+                            setup.push_str("];\n");
+                            setup.push_str("    let resolve_result = try_resolve_imports_with_registered(&mut store, &module, &registered_exports);\n");
+                        } else {
+                            setup.push_str("    let resolve_result = try_resolve_spectest_imports(&mut store, &module);\n");
+                        }
+
                         all_tests.push_str(&format!(
                             concat!(
                                 "#[test]\n",
@@ -251,14 +290,15 @@ mod spec_tests {
                                 "    let wasm_bytes: &[u8] = include_bytes!(concat!(env!(\"OUT_DIR\"), \"/wasm/unlinkable_{file}_{idx}.wasm\"));\n",
                                 "    let module = Module::new(wasm_bytes).unwrap();\n",
                                 "    let mut store = Store::new();\n",
-                                "    let imports = setup_spectest_imports(&mut store, &module);\n",
-                                "    let result = store.instantiate(&module, imports);\n",
+                                "{setup}",
+                                "    let result = resolve_result.and_then(|imports| store.instantiate(&module, imports));\n",
                                 "    assert!(result.is_err(), \"expected unlinkable module to fail instantiation, but it succeeded\");\n",
                                 "}}\n",
                             ),
                             test_name = test_name,
                             file = safe_name,
                             idx = unlinkable_idx,
+                            setup = setup,
                         ));
                         unlinkable_idx += 1;
                     }

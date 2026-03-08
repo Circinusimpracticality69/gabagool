@@ -12,7 +12,7 @@ use crate::{
 
 use crate::binary_grammar::{
     CompositeType, DataSegment, ElementSegment, ExportDescription, Function, FunctionType, Global,
-    GlobalType, MemoryType, ParsedModule, RefType, SubType, TableType, ValueType,
+    GlobalType, Limit, MemoryType, ParsedModule, RefType, SubType, TableType, ValueType,
 };
 use crate::execution_grammar::{
     AddressMap, DataInstance, ElementInstance, ExportInstance, ExternalValue, FunctionInstance,
@@ -563,6 +563,77 @@ impl Store {
         Ok(module_instance)
     }
 
+    fn validate_imports(&self, module: &Module, imports: &[ExternalValue]) -> Result<()> {
+        for (extern_val, import_decl) in imports.iter().zip(module.import_declarations.iter()) {
+            let err = |msg: &str| {
+                Error::Instantiation(format!(
+                    "incompatible import type for {}.{}: {}",
+                    import_decl.module, import_decl.name, msg
+                ))
+            };
+
+            match (extern_val, &import_decl.description) {
+                (ExternalValue::Function { addr }, ImportDescription::Func(type_idx)) => {
+                    let expected = match &module.types()[*type_idx as usize].composite_type {
+                        CompositeType::Func(ft) => ft,
+                        _ => return Err(err("type index is not a function type")),
+                    };
+
+                    let actual = match &self.functions[*addr] {
+                        FunctionInstance::Local { function_type, .. }
+                        | FunctionInstance::Host { function_type, .. } => function_type,
+                    };
+
+                    ensure!(
+                        *expected == *actual,
+                        err(&format!("expected {:?}, got {:?}", expected, actual))
+                    );
+                }
+                (ExternalValue::Table { addr }, ImportDescription::Table(expected_tt)) => {
+                    let actual_tt = &self.tables[*addr].table_type;
+
+                    ensure!(
+                        actual_tt.element_reference_type == expected_tt.element_reference_type
+                            && actual_tt.addr_type == expected_tt.addr_type
+                            && limits_match(&actual_tt.limit, &expected_tt.limit),
+                        err("table type mismatch")
+                    );
+                }
+                (ExternalValue::Memory { addr }, ImportDescription::Mem(expected_mt)) => {
+                    let actual_mt = &self.memories[*addr].memory_type;
+
+                    ensure!(
+                        actual_mt.addr_type == expected_mt.addr_type
+                            && limits_match(&actual_mt.limit, &expected_mt.limit),
+                        err("memory type mismatch")
+                    );
+                }
+                (ExternalValue::Global { addr }, ImportDescription::Global(expected_gt)) => {
+                    let actual_gt = &self.globals[*addr].global_type;
+
+                    ensure!(
+                        actual_gt.value_type == expected_gt.value_type
+                            && actual_gt.mutability == expected_gt.mutability,
+                        err("global type mismatch")
+                    );
+                }
+                (ExternalValue::Tag { addr }, ImportDescription::Tag(type_idx)) => {
+                    let expected = match &module.types()[*type_idx as usize].composite_type {
+                        CompositeType::Func(ft) => ft,
+                        _ => return Err(err("type index is not a function type")),
+                    };
+
+                    if *addr < self.tags.len() {
+                        let actual = &self.tags[*addr].tag_type;
+                        ensure!(*expected == *actual, err("tag type mismatch"));
+                    }
+                }
+                _ => return Err(Error::Instantiation("import kind mismatch".into())),
+            }
+        }
+        Ok(())
+    }
+
     pub fn instantiate(
         &mut self,
         module: &Module,
@@ -579,28 +650,7 @@ impl Store {
         );
 
         // step 5
-        let is_compatible = |external_address: &ExternalValue,
-                             import_description: &ImportDescription| {
-            matches!(
-                (external_address, &import_description),
-                (ExternalValue::Function { .. }, ImportDescription::Func(_))
-                    | (ExternalValue::Table { .. }, ImportDescription::Table(_))
-                    | (ExternalValue::Memory { .. }, ImportDescription::Mem(_))
-                    | (ExternalValue::Global { .. }, ImportDescription::Global(_))
-                    | (ExternalValue::Tag { .. }, ImportDescription::Tag(_))
-            )
-        };
-
-        ensure!(
-            external_addresses
-                .iter()
-                .zip(module.import_declarations.iter())
-                .all(|(extern_addr, import_decl)| is_compatible(
-                    extern_addr,
-                    &import_decl.description
-                )),
-            Error::Instantiation("import type mismatch".into())
-        );
+        self.validate_imports(module, &external_addresses)?;
 
         // step 6
         let data_instructions = module
@@ -1095,8 +1145,7 @@ impl Store {
                     };
 
                     ensure!(
-                        expected.0 .0.len() == actual.0 .0.len()
-                            && expected.1 .0.len() == actual.1 .0.len(),
+                        expected == actual,
                         Error::Trap(Trap::IndirectCallTypeMismatch)
                     );
 
@@ -1148,8 +1197,7 @@ impl Store {
                     };
 
                     ensure!(
-                        expected.0 .0.len() == actual.0 .0.len()
-                            && expected.1 .0.len() == actual.1 .0.len(),
+                        expected == actual,
                         Error::Trap(Trap::IndirectCallTypeMismatch)
                     );
 
@@ -2423,6 +2471,10 @@ impl Store {
         self.run()?;
         Ok(())
     }
+}
+
+const fn limits_match(actual: &Limit, expected: &Limit) -> bool {
+    actual.min >= expected.min && (expected.max == u64::MAX || actual.max <= expected.max)
 }
 
 fn run_data(index: u32, data_segment: &DataSegment) -> Vec<Instruction> {
