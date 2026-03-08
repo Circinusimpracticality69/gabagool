@@ -275,7 +275,10 @@ mod spec_tests {
                                 "    let registered_exports: Vec<(&str, &[ExportInstance])> = vec![",
                             );
                             for (name, dep_idx) in &prereq_registered {
-                                setup.push_str(&format!("(\"{}\", &prereq_exports_{}), ", name, dep_idx));
+                                setup.push_str(&format!(
+                                    "(\"{}\", &prereq_exports_{}), ",
+                                    name, dep_idx
+                                ));
                             }
                             setup.push_str("];\n");
                             setup.push_str("    let resolve_result = try_resolve_imports_with_registered(&mut store, &module, &registered_exports);\n");
