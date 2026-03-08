@@ -2,6 +2,7 @@ use crate::binary_grammar::{
     BlockType, CompositeType, Function, Instruction, ParsedModule, SubType, ValueType,
 };
 use crate::ir::{CompiledFunction, JumpTableEntry, Op};
+use crate::ImportDescription;
 
 const UNREACHABLE_DEPTH: i32 = i32::MIN;
 
@@ -78,16 +79,14 @@ pub fn compile(module: &ParsedModule) -> ModuleCode {
             _ => (0, 0),
         }
     };
-    let mut func_signatures: Vec<(usize, usize)> = module
+    let mut func_signatures = module
         .import_declarations
         .iter()
         .filter_map(|imp| match &imp.description {
-            crate::binary_grammar::ImportDescription::Func(type_idx) => {
-                Some(resolve_sig(*type_idx, &module.types))
-            }
+            ImportDescription::Func(type_idx) => Some(resolve_sig(*type_idx, &module.types)),
             _ => None,
         })
-        .collect();
+        .collect::<Vec<_>>();
     for f in &module.functions {
         func_signatures.push(resolve_sig(f.type_index, &module.types));
     }
@@ -388,6 +387,21 @@ impl<'a> Compiler<'a> {
 
         while i < self.ops.len() {
             match &self.ops[i..] {
+                [CompilerOp::Op(Op::LocalGet {
+                    local_idx: local_get_idx,
+                }), CompilerOp::Op(Op::LocalSet {
+                    local_idx: local_set_idx,
+                }), ..] => {
+                    out.push(
+                        Op::LocalGetLocalSet {
+                            local_get_idx: *local_get_idx,
+                            local_set_idx: *local_set_idx,
+                        }
+                        .into(),
+                    );
+
+                    i += 2;
+                }
                 [CompilerOp::Op(Op::LocalGet { local_idx }), CompilerOp::Op(Op::I32Store { offset, memory }), ..] =>
                 {
                     out.push(
@@ -3234,6 +3248,20 @@ mod tests {
                 local_idx: 0,
                 offset: 4,
                 memory: 0,
+            },
+            Return,
+        ]
+        "#);
+    }
+
+    #[test]
+    fn fuse_local_get_local_set() {
+        let ops = compile_ops(vec![Instruction::LocalGet(0), Instruction::LocalSet(1)]);
+        insta::assert_debug_snapshot!(&ops, @r#"
+        [
+            LocalGetLocalSet {
+                local_get_idx: 0,
+                local_set_idx: 1,
             },
             Return,
         ]

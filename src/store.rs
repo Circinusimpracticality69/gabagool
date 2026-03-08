@@ -2319,6 +2319,15 @@ impl Store {
                     8,
                     |v: RawValue| v.as_f64().to_le_bytes()
                 ),
+                Op::LocalGetLocalSet {
+                    local_get_idx,
+                    local_set_idx,
+                } => {
+                    let locals = &mut self.call_stack[depth].locals;
+                    let out = locals[local_get_idx as usize];
+
+                    locals[local_set_idx as usize] = out;
+                }
                 _ => todo!(),
             }
         }

@@ -944,6 +944,10 @@ pub enum Op {
         offset: u32,
         memory: u32,
     },
+    LocalGetLocalSet {
+        local_get_idx: u32,
+        local_set_idx: u32,
+    },
 }
 
 impl Op {
