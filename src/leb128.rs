@@ -48,10 +48,9 @@ pub fn read_u32(buf: &[u8]) -> Result<(u32, usize)> {
         );
 
         if b < 0x80 {
-            ensure!(
-                i != MAX_LEB128_LEN_32 || b <= 1,
-                Error::Parse("Invalid final byte for 32-bit leb128 decoding.".into())
-            );
+            if i == MAX_LEB128_LEN_32 - 1 && b > 0x0F {
+                parse_err!("integer too large");
+            }
 
             return Ok((x | (b as u32) << s, i + 1));
         }
@@ -102,6 +101,13 @@ pub fn read_i32(buf: &[u8]) -> Result<(i32, usize)> {
         shift += 7;
 
         if byte & 0x80 == 0 {
+            if i == MAX_LEB128_LEN_32 - 1 {
+                let sign_bit = (byte >> 3) & 1;
+                let expected_upper = if sign_bit == 1 { 0x7 } else { 0x0 };
+                if (byte >> 4) & 0x7 != expected_upper {
+                    parse_err!("integer too large");
+                }
+            }
             // Sign-extend if the sign bit (bit 6) of the last byte is set
             if shift < 32 && (byte & 0x40) != 0 {
                 result |= !0i32 << shift;
@@ -125,10 +131,9 @@ pub fn read_u64(buf: &[u8]) -> Result<(u64, usize)> {
         );
 
         if b < 0x80 {
-            ensure!(
-                i != MAX_LEB128_LEN_64 || b <= 1,
-                Error::Parse("Invalid final byte for 64-bit leb128 decoding.".into())
-            );
+            if i == MAX_LEB128_LEN_64 - 1 && b > 0x01 {
+                parse_err!("integer too large");
+            }
 
             return Ok((x | (b as u64) << s, i + 1));
         }
@@ -157,6 +162,13 @@ pub fn read_i64(buf: &[u8]) -> Result<(i64, usize)> {
         shift += 7;
 
         if byte & 0x80 == 0 {
+            if i == MAX_LEB128_LEN_64 - 1 {
+                let sign_bit = byte & 1;
+                let expected_upper = if sign_bit == 1 { 0x7F } else { 0x0 };
+                if (byte >> 1) != (expected_upper >> 1) {
+                    parse_err!("integer too large");
+                }
+            }
             if shift < 64 && (byte & 0x40) != 0 {
                 result |= !0i64 << shift;
             }
