@@ -36,9 +36,22 @@ impl<'a> Parser<'a> {
     pub fn parse_module(&mut self) -> Result<ParsedModule> {
         let mut module = ParsedModule::new(self.parse_preamble()?);
         let mut data_count: Option<u32> = None;
+        let mut last_non_custom_id: u8 = 0;
 
         while self.cursor < self.buffer.len() {
             let id = self.read_u8()?;
+
+            if id != 0 {
+                let order = section_logical_order(id);
+                ensure!(
+                    order > 0 && order > last_non_custom_id,
+                    Error::Parse(format!(
+                        "unexpected content after last section: section {} after previous",
+                        id
+                    ))
+                );
+                last_non_custom_id = order;
+            }
 
             match self.parse_section(id)? {
                 Section::Custom(custom) => module.customs.push(custom),
@@ -1591,5 +1604,38 @@ impl<'a> Parser<'a> {
         };
 
         Ok(section)
+    }
+}
+
+// maps section ids to their logical ordering position in the binary format
+const fn section_logical_order(id: u8) -> u8 {
+    match id {
+        // type
+        1 => 1,
+        // import
+        2 => 2,
+        // function
+        3 => 3,
+        // table
+        4 => 4,
+        // memory
+        5 => 5,
+        // tag
+        13 => 6,
+        // global
+        6 => 7,
+        // export
+        7 => 8,
+        // start
+        8 => 9,
+        // element
+        9 => 10,
+        // data count
+        12 => 11,
+        // code
+        10 => 12,
+        // data
+        11 => 13,
+        _ => 0,
     }
 }
