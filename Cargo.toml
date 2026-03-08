@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "a snapshotable WASM interpreter"
 edition = "2021"
 authors = ["friendlymatthew"]
-license = "MIT"
+license = "Apache-2.0"
 
 [profile.release]
 debug = 1
