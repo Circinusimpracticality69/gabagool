@@ -414,6 +414,84 @@ impl<'a> Compiler<'a> {
 
                     i += 2;
                 }
+                [CompilerOp::Op(Op::LocalGet { local_idx }), CompilerOp::Op(Op::I64Load { offset, memory }), ..] =>
+                {
+                    out.push(
+                        Op::LocalGetI64Load {
+                            local_idx: *local_idx,
+                            offset: *offset,
+                            memory: *memory,
+                        }
+                        .into(),
+                    );
+
+                    i += 2;
+                }
+                [CompilerOp::Op(Op::LocalGet { local_idx }), CompilerOp::Op(Op::F32Load { offset, memory }), ..] =>
+                {
+                    out.push(
+                        Op::LocalGetF32Load {
+                            local_idx: *local_idx,
+                            offset: *offset,
+                            memory: *memory,
+                        }
+                        .into(),
+                    );
+
+                    i += 2;
+                }
+                [CompilerOp::Op(Op::LocalGet { local_idx }), CompilerOp::Op(Op::F64Load { offset, memory }), ..] =>
+                {
+                    out.push(
+                        Op::LocalGetF64Load {
+                            local_idx: *local_idx,
+                            offset: *offset,
+                            memory: *memory,
+                        }
+                        .into(),
+                    );
+
+                    i += 2;
+                }
+                [CompilerOp::Op(Op::LocalGet { local_idx }), CompilerOp::Op(Op::I64Store { offset, memory }), ..] =>
+                {
+                    out.push(
+                        Op::LocalGetI64Store {
+                            local_idx: *local_idx,
+                            offset: *offset,
+                            memory: *memory,
+                        }
+                        .into(),
+                    );
+
+                    i += 2;
+                }
+                [CompilerOp::Op(Op::LocalGet { local_idx }), CompilerOp::Op(Op::F32Store { offset, memory }), ..] =>
+                {
+                    out.push(
+                        Op::LocalGetF32Store {
+                            local_idx: *local_idx,
+                            offset: *offset,
+                            memory: *memory,
+                        }
+                        .into(),
+                    );
+
+                    i += 2;
+                }
+                [CompilerOp::Op(Op::LocalGet { local_idx }), CompilerOp::Op(Op::F64Store { offset, memory }), ..] =>
+                {
+                    out.push(
+                        Op::LocalGetF64Store {
+                            local_idx: *local_idx,
+                            offset: *offset,
+                            memory: *memory,
+                        }
+                        .into(),
+                    );
+
+                    i += 2;
+                }
                 [CompilerOp::Op(Op::LocalGet { local_idx }), CompilerOp::Op(Op::Return), ..] => {
                     out.push(
                         Op::LocalGetReturn {

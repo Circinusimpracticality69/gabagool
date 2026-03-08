@@ -909,7 +909,37 @@ pub enum Op {
         offset: u32,
         memory: u32,
     },
+    LocalGetI64Load {
+        local_idx: u32,
+        offset: u32,
+        memory: u32,
+    },
+    LocalGetF32Load {
+        local_idx: u32,
+        offset: u32,
+        memory: u32,
+    },
+    LocalGetF64Load {
+        local_idx: u32,
+        offset: u32,
+        memory: u32,
+    },
     LocalGetI32Store {
+        local_idx: u32,
+        offset: u32,
+        memory: u32,
+    },
+    LocalGetI64Store {
+        local_idx: u32,
+        offset: u32,
+        memory: u32,
+    },
+    LocalGetF32Store {
+        local_idx: u32,
+        offset: u32,
+        memory: u32,
+    },
+    LocalGetF64Store {
         local_idx: u32,
         offset: u32,
         memory: u32,

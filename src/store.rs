@@ -96,6 +96,45 @@ macro_rules! cmp_branch {
     }};
 }
 
+macro_rules! local_get_load {
+    ($self:expr, $depth:expr, $mi:expr, $local_idx:expr, $offset:expr, $memory:expr, $width:literal, |$bytes:ident| $convert:expr) => {{
+        let locals = &$self.call_stack[$depth].locals;
+        let mem_addr = $self.instances[$mi].mem_addrs[$memory as usize];
+        let mem = &$self.memories[mem_addr];
+        let base = match mem.memory_type.addr_type {
+            AddrType::I32 => locals[$local_idx as usize].as_i32() as u64,
+            AddrType::I64 => locals[$local_idx as usize].as_i64() as u64,
+        };
+        let ea = base
+            .checked_add($offset as u64)
+            .and_then(|v| usize::try_from(v).ok());
+        let Some(ea) = ea.filter(|&ea| ea.saturating_add($width) <= mem.data.len()) else {
+            trap!(Trap::OutOfBoundsMemoryAccess);
+        };
+        let $bytes: [u8; $width] = mem.data[ea..ea + $width].try_into().unwrap();
+        $self.stack.push($convert);
+    }};
+}
+
+macro_rules! local_get_store {
+    ($self:expr, $depth:expr, $mi:expr, $local_idx:expr, $offset:expr, $memory:expr, $width:literal, $to_bytes:expr) => {{
+        let locals = &$self.call_stack[$depth].locals;
+        let val = locals[$local_idx as usize];
+        let mem_addr = $self.instances[$mi].mem_addrs[$memory as usize];
+        let addr_type = $self.memories[mem_addr].memory_type.addr_type;
+        let base = $self.stack.pop_address(addr_type) as u64;
+        let ea = base
+            .checked_add($offset as u64)
+            .and_then(|v| usize::try_from(v).ok());
+        let mem = &mut $self.memories[mem_addr];
+        let Some(ea) = ea.filter(|&ea| ea.saturating_add($width) <= mem.data.len()) else {
+            trap!(Trap::OutOfBoundsMemoryAccess);
+        };
+        let bytes: [u8; $width] = $to_bytes(val);
+        mem.data[ea..ea + $width].copy_from_slice(&bytes);
+    }};
+}
+
 macro_rules! binop {
     ($self:expr, $variant:ident, |$b:ident, $a:ident| $expr:expr) => {{
         let $a = pop_val!($self, $variant);
@@ -2200,51 +2239,86 @@ impl Store {
                     local_idx,
                     offset,
                     memory,
-                } => {
-                    let locals = &self.call_stack[depth].locals;
-                    let mem_addr = self.instances[mi].mem_addrs[memory as usize];
-                    let mem = &self.memories[mem_addr];
-                    let base = match mem.memory_type.addr_type {
-                        AddrType::I32 => locals[local_idx as usize].as_i32() as u64,
-                        AddrType::I64 => locals[local_idx as usize].as_i64() as u64,
-                    };
-
-                    let ea = base
-                        .checked_add(offset as u64)
-                        .and_then(|v| usize::try_from(v).ok());
-
-                    let Some(ea) = ea.filter(|&ea| ea.saturating_add(4) <= mem.data.len()) else {
-                        trap!(Trap::OutOfBoundsMemoryAccess);
-                    };
-
-                    let b: [u8; 4] = mem.data[ea..ea + 4].try_into().unwrap();
-                    self.stack.push(i32::from_le_bytes(b));
-                }
+                } => local_get_load!(self, depth, mi, local_idx, offset, memory, 4, |b| {
+                    i32::from_le_bytes(b)
+                }),
+                Op::LocalGetI64Load {
+                    local_idx,
+                    offset,
+                    memory,
+                } => local_get_load!(self, depth, mi, local_idx, offset, memory, 8, |b| {
+                    i64::from_le_bytes(b)
+                }),
+                Op::LocalGetF32Load {
+                    local_idx,
+                    offset,
+                    memory,
+                } => local_get_load!(self, depth, mi, local_idx, offset, memory, 4, |b| {
+                    f32::from_le_bytes(b)
+                }),
+                Op::LocalGetF64Load {
+                    local_idx,
+                    offset,
+                    memory,
+                } => local_get_load!(self, depth, mi, local_idx, offset, memory, 8, |b| {
+                    f64::from_le_bytes(b)
+                }),
                 Op::LocalGetI32Store {
                     local_idx,
                     offset,
                     memory,
-                } => {
-                    let val = self.stack.pop();
-                    let locals = &self.call_stack[depth].locals;
-                    let mem_addr = self.instances[mi].mem_addrs[memory as usize];
-                    let addr_type = self.memories[mem_addr].memory_type.addr_type;
-                    let base = match addr_type {
-                        AddrType::I32 => locals[local_idx as usize].as_i32() as u64,
-                        AddrType::I64 => locals[local_idx as usize].as_i64() as u64,
-                    };
-
-                    let ea = base
-                        .checked_add(offset as u64)
-                        .and_then(|v| usize::try_from(v).ok());
-
-                    let mem = &mut self.memories[mem_addr];
-
-                    let Some(ea) = ea.filter(|&ea| ea.saturating_add(4) <= mem.data.len()) else {
-                        trap!(Trap::OutOfBoundsMemoryAccess);
-                    };
-                    mem.data[ea..ea + 4].copy_from_slice(&val.as_i32().to_le_bytes());
-                }
+                } => local_get_store!(
+                    self,
+                    depth,
+                    mi,
+                    local_idx,
+                    offset,
+                    memory,
+                    4,
+                    |v: RawValue| v.as_i32().to_le_bytes()
+                ),
+                Op::LocalGetI64Store {
+                    local_idx,
+                    offset,
+                    memory,
+                } => local_get_store!(
+                    self,
+                    depth,
+                    mi,
+                    local_idx,
+                    offset,
+                    memory,
+                    8,
+                    |v: RawValue| v.as_i64().to_le_bytes()
+                ),
+                Op::LocalGetF32Store {
+                    local_idx,
+                    offset,
+                    memory,
+                } => local_get_store!(
+                    self,
+                    depth,
+                    mi,
+                    local_idx,
+                    offset,
+                    memory,
+                    4,
+                    |v: RawValue| v.as_f32().to_le_bytes()
+                ),
+                Op::LocalGetF64Store {
+                    local_idx,
+                    offset,
+                    memory,
+                } => local_get_store!(
+                    self,
+                    depth,
+                    mi,
+                    local_idx,
+                    offset,
+                    memory,
+                    8,
+                    |v: RawValue| v.as_f64().to_le_bytes()
+                ),
                 _ => todo!(),
             }
         }
