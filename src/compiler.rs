@@ -388,6 +388,19 @@ impl<'a> Compiler<'a> {
 
         while i < self.ops.len() {
             match &self.ops[i..] {
+                [CompilerOp::Op(Op::LocalGet { local_idx }), CompilerOp::Op(Op::I32Load { offset, memory }), ..] =>
+                {
+                    out.push(
+                        Op::LocalGetI32Load {
+                            local_idx: *local_idx,
+                            offset: *offset,
+                            memory: *memory,
+                        }
+                        .into(),
+                    );
+
+                    i += 2;
+                }
                 [CompilerOp::Op(Op::LocalGet { local_idx }), CompilerOp::Op(Op::Return), ..] => {
                     out.push(
                         Op::LocalGetReturn {
@@ -2929,7 +2942,7 @@ impl<'a> Compiler<'a> {
 mod tests {
     use super::*;
     use crate::binary_grammar::{
-        BlockType, CompositeType, FunctionType, Instruction, ResultType, SubType, ValueType,
+        BlockType, CompositeType, FunctionType, Instruction, MemArg, ResultType, SubType, ValueType,
     };
 
     fn i32_func_type() -> SubType {
@@ -3082,6 +3095,28 @@ mod tests {
                 target: 2,
                 keep: 0,
                 drop: 0,
+            },
+            Return,
+        ]
+        "#);
+    }
+
+    #[test]
+    fn fuse_local_get_i32_load() {
+        let ops = compile_ops(vec![
+            Instruction::LocalGet(0),
+            Instruction::I32Load(MemArg {
+                align: 2,
+                offset: 8,
+                memory: 0,
+            }),
+        ]);
+        insta::assert_debug_snapshot!(&ops, @r#"
+        [
+            LocalGetI32Load {
+                local_idx: 0,
+                offset: 8,
+                memory: 0,
             },
             Return,
         ]

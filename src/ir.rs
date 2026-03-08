@@ -904,6 +904,11 @@ pub enum Op {
     LocalGetReturn {
         local_idx: u32,
     },
+    LocalGetI32Load {
+        local_idx: u32,
+        offset: u32,
+        memory: u32,
+    },
 }
 
 impl Op {

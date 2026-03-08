@@ -2196,6 +2196,30 @@ impl Store {
                     self.do_local_get(local_idx as usize, depth);
                     self.do_return(depth);
                 }
+                Op::LocalGetI32Load {
+                    local_idx,
+                    offset,
+                    memory,
+                } => {
+                    let locals = &self.call_stack[depth].locals;
+                    let mem_addr = self.instances[mi].mem_addrs[memory as usize];
+                    let mem = &self.memories[mem_addr];
+                    let base = match mem.memory_type.addr_type {
+                        AddrType::I32 => locals[local_idx as usize].as_i32() as u64,
+                        AddrType::I64 => locals[local_idx as usize].as_i64() as u64,
+                    };
+
+                    let ea = base
+                        .checked_add(offset as u64)
+                        .and_then(|v| usize::try_from(v).ok());
+
+                    let Some(ea) = ea.filter(|&ea| ea.saturating_add(4) <= mem.data.len()) else {
+                        trap!(Trap::OutOfBoundsMemoryAccess);
+                    };
+
+                    let b: [u8; 4] = mem.data[ea..ea + 4].try_into().unwrap();
+                    self.stack.push(i32::from_le_bytes(b));
+                }
                 _ => todo!(),
             }
         }
@@ -2203,7 +2227,7 @@ impl Store {
 
     fn do_local_get(&mut self, local_idx: usize, depth: usize) {
         let locals = &self.call_stack[depth].locals;
-        assert!(
+        debug_assert!(
             local_idx < locals.len(),
             "compiler error: local index {local_idx} oob (func has {} locals)",
             locals.len()
