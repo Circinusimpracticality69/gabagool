@@ -1,7 +1,7 @@
 use crate::binary_grammar::{
-    BlockType, CompositeType, Function, Instruction, ParsedModule, SubType, ValueType,
+    BlockType, CatchClause, CompositeType, Function, Instruction, ParsedModule, SubType, ValueType,
 };
-use crate::ir::{CompiledFunction, JumpTableEntry, Op};
+use crate::ir::{CatchKind, CompiledCatchClause, CompiledFunction, JumpTableEntry, Op};
 use crate::ImportDescription;
 
 const UNREACHABLE_DEPTH: i32 = i32::MIN;
@@ -52,26 +52,31 @@ pub struct ModuleCode {
     pub(crate) v128_constants: Vec<i128>,
     pub(crate) jump_tables: Vec<Vec<JumpTableEntry>>,
     pub(crate) shuffle_masks: Vec<[u8; 16]>,
+    pub(crate) catch_handlers: Vec<Vec<CompiledCatchClause>>,
 }
 
 struct Compiler<'a> {
     types: &'a [SubType],
     func_signatures: Vec<(usize, usize)>,
+    tag_signatures: Vec<usize>,
     ops: Vec<CompilerOp>,
     block_stack: Vec<BlockContext>,
     stack_height: i32,
     max_stack_height: i32,
     next_label: u32,
     jump_table_base: usize,
+    catch_handler_base: usize,
     v128_constants: Vec<i128>,
     jump_tables: Vec<Vec<JumpTableEntry>>,
     shuffle_masks: Vec<[u8; 16]>,
+    catch_handlers: Vec<Vec<CompiledCatchClause>>,
 }
 
 pub fn compile(module: &ParsedModule) -> ModuleCode {
     let mut v128_constants = Vec::new();
     let mut jump_tables = Vec::new();
     let mut shuffle_masks = Vec::new();
+    let mut catch_handlers = Vec::new();
 
     let resolve_sig = |type_idx: u32, types: &[SubType]| -> (usize, usize) {
         match &types[type_idx as usize].composite_type {
@@ -91,6 +96,24 @@ pub fn compile(module: &ParsedModule) -> ModuleCode {
         func_signatures.push(resolve_sig(f.type_index, &module.types));
     }
 
+    let resolve_tag_sig = |type_idx: u32, types: &[SubType]| -> usize {
+        match &types[type_idx as usize].composite_type {
+            CompositeType::Func(ft) => ft.0 .0.len(),
+            _ => 0,
+        }
+    };
+    let mut tag_signatures: Vec<usize> = module
+        .import_declarations
+        .iter()
+        .filter_map(|imp| match &imp.description {
+            ImportDescription::Tag(type_idx) => Some(resolve_tag_sig(*type_idx, &module.types)),
+            _ => None,
+        })
+        .collect();
+    for tag in &module.tags {
+        tag_signatures.push(resolve_tag_sig(tag.type_index, &module.types));
+    }
+
     let functions = module
         .functions
         .iter()
@@ -98,21 +121,25 @@ pub fn compile(module: &ParsedModule) -> ModuleCode {
             let mut compiler = Compiler {
                 types: &module.types,
                 func_signatures: func_signatures.clone(),
+                tag_signatures: tag_signatures.clone(),
                 ops: Vec::new(),
                 block_stack: Vec::new(),
                 stack_height: 0,
                 max_stack_height: 0,
                 next_label: 0,
                 jump_table_base: 0,
+                catch_handler_base: 0,
                 v128_constants: std::mem::take(&mut v128_constants),
                 jump_tables: std::mem::take(&mut jump_tables),
                 shuffle_masks: std::mem::take(&mut shuffle_masks),
+                catch_handlers: std::mem::take(&mut catch_handlers),
             };
             let cf = compiler.compile_function(f);
 
             v128_constants = compiler.v128_constants;
             jump_tables = compiler.jump_tables;
             shuffle_masks = compiler.shuffle_masks;
+            catch_handlers = compiler.catch_handlers;
             cf
         })
         .collect();
@@ -123,6 +150,7 @@ pub fn compile(module: &ParsedModule) -> ModuleCode {
         v128_constants,
         jump_tables,
         shuffle_masks,
+        catch_handlers,
     }
 }
 
@@ -134,20 +162,24 @@ pub fn compile_function_into_code(
     let mut compiler = Compiler {
         types,
         func_signatures: Vec::new(),
+        tag_signatures: Vec::new(),
         ops: Vec::new(),
         block_stack: Vec::new(),
         stack_height: 0,
         max_stack_height: 0,
         next_label: 0,
         jump_table_base: 0,
+        catch_handler_base: 0,
         v128_constants: std::mem::take(&mut code.v128_constants),
         jump_tables: std::mem::take(&mut code.jump_tables),
         shuffle_masks: std::mem::take(&mut code.shuffle_masks),
+        catch_handlers: std::mem::take(&mut code.catch_handlers),
     };
     let cf = compiler.compile_function(func);
     code.v128_constants = compiler.v128_constants;
     code.jump_tables = compiler.jump_tables;
     code.shuffle_masks = compiler.shuffle_masks;
+    code.catch_handlers = compiler.catch_handlers;
     cf
 }
 
@@ -183,6 +215,7 @@ impl<'a> Compiler<'a> {
         };
 
         self.jump_table_base = self.jump_tables.len();
+        self.catch_handler_base = self.catch_handlers.len();
 
         let start_label = self.next_label();
         let end_label = self.next_label();
@@ -248,6 +281,54 @@ impl<'a> Compiler<'a> {
         self.ops.push(CompilerOp::Op(op));
     }
 
+    fn compile_catch_clauses(
+        &self,
+        catches: &[CatchClause],
+        try_entry_height: i32,
+    ) -> Vec<CompiledCatchClause> {
+        catches
+            .iter()
+            .map(|c| {
+                let (kind, tag_idx, label) = match c {
+                    CatchClause::Catch { tag, label } => (CatchKind::Catch, *tag, *label),
+                    CatchClause::CatchRef { tag, label } => (CatchKind::CatchRef, *tag, *label),
+                    CatchClause::CatchAll { label } => (CatchKind::CatchAll, 0, *label),
+                    CatchClause::CatchAllRef { label } => (CatchKind::CatchAllRef, 0, *label),
+                };
+
+                let n_tag_values = match kind {
+                    CatchKind::Catch | CatchKind::CatchRef => {
+                        self.tag_signatures[tag_idx as usize] as u16
+                    }
+                    _ => 0,
+                };
+                let n_values = n_tag_values
+                    + match kind {
+                        CatchKind::CatchRef | CatchKind::CatchAllRef => 1,
+                        _ => 0,
+                    };
+
+                let idx = self.block_stack.len() - 2 - label as usize;
+                let ctx = &self.block_stack[idx];
+                let target = if ctx.kind == BlockKind::Loop {
+                    ctx.start_label
+                } else {
+                    ctx.end_label
+                };
+
+                let drop = (try_entry_height - ctx.entry_stack_height) as u16;
+
+                CompiledCatchClause {
+                    kind,
+                    tag_idx,
+                    target: target.0,
+                    n_values,
+                    drop,
+                }
+            })
+            .collect()
+    }
+
     fn emit_branch(&mut self, depth: u32, conditional: bool, negate: bool) {
         let idx = self.block_stack.len() - 1 - depth as usize;
         let ctx = &self.block_stack[idx];
@@ -304,6 +385,13 @@ impl<'a> Compiler<'a> {
         for table in &mut self.jump_tables[self.jump_table_base..] {
             for entry in table.iter_mut() {
                 entry.target = label_positions[entry.target as usize];
+            }
+        }
+
+        // resolve catch handler targets (only handlers from the current function)
+        for handler in &mut self.catch_handlers[self.catch_handler_base..] {
+            for clause in handler.iter_mut() {
+                clause.target = label_positions[clause.target as usize];
             }
         }
 
@@ -373,6 +461,11 @@ impl<'a> Compiler<'a> {
         for table in &self.jump_tables[self.jump_table_base..] {
             for entry in table {
                 live[entry.target as usize] = true;
+            }
+        }
+        for handler in &self.catch_handlers[self.catch_handler_base..] {
+            for clause in handler {
+                live[clause.target as usize] = true;
             }
         }
         self.ops.retain(|cop| match cop {
@@ -970,6 +1063,7 @@ impl<'a> Compiler<'a> {
             v128_constants: Vec::new(),
             jump_tables: Vec::new(),
             shuffle_masks: Vec::new(),
+            catch_handlers: Vec::new(),
         };
         let cf = compile_function_into_code(types, func, &mut code);
         cf.ops
@@ -3005,7 +3099,40 @@ impl<'a> Compiler<'a> {
                 self.emit(Op::I32x4RelaxedDotI8x16I7x16AddSigned);
                 self.stack_height -= 2;
             }
-            Instruction::TryTable(..) => todo!(),
+            Instruction::TryTable(bt, catches, body) => {
+                let (m, n) = self.resolve_block_type(bt);
+
+                let entry = ((self.stack_height != UNREACHABLE_DEPTH) as i32)
+                    .wrapping_mul(self.stack_height.wrapping_sub(m as i32));
+
+                let start_label = self.next_label();
+                let end_label = self.next_label();
+
+                self.emit_label(start_label);
+
+                self.block_stack.push(BlockContext {
+                    kind: BlockKind::Block,
+                    entry_stack_height: entry,
+                    branch_arity: n,
+                    start_label,
+                    end_label,
+                });
+
+                let clauses = self.compile_catch_clauses(catches, entry);
+                let handler_idx = self.catch_handlers.len() as u32;
+                self.catch_handlers.push(clauses);
+
+                self.emit(Op::TryCatchPush { handler_idx });
+
+                for i in body {
+                    self.compile_instruction(i);
+                }
+
+                self.emit(Op::TryCatchPop);
+                self.block_stack.pop().expect("we push right before");
+                self.emit_label(end_label);
+                self.stack_height = entry + n as i32;
+            }
             Instruction::StructNew(..) => todo!(),
             Instruction::StructNewDefault(..) => todo!(),
             Instruction::StructGet(..) => todo!(),

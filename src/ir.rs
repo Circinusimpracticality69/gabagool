@@ -8,6 +8,23 @@ pub struct JumpTableEntry {
     pub drop: u16,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CatchKind {
+    Catch,
+    CatchRef,
+    CatchAll,
+    CatchAllRef,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CompiledCatchClause {
+    pub kind: CatchKind,
+    pub tag_idx: u32,
+    pub target: u32,
+    pub n_values: u16,
+    pub drop: u16,
+}
+
 #[derive(Debug, Clone)]
 pub struct CompiledFunction {
     pub ops: Vec<Op>,
@@ -117,6 +134,10 @@ pub enum Op {
         tag_idx: u32,
     },
     ThrowRef,
+    TryCatchPush {
+        handler_idx: u32,
+    },
+    TryCatchPop,
     TableGet {
         table_idx: u32,
     },

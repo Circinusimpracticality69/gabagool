@@ -14,11 +14,12 @@ use crate::binary_grammar::{
     CompositeType, DataSegment, ElementSegment, ExportDescription, Function, FunctionType, Global,
     GlobalType, Limit, MemoryType, ParsedModule, RefType, SubType, TableType, ValueType,
 };
+use crate::error::Exception;
 use crate::execution_grammar::{
     AddressMap, DataInstance, ElementInstance, ExportInstance, ExternalValue, FunctionInstance,
     GlobalInstance, MemoryInstance, Ref, TableInstance, TagInstance,
 };
-use crate::ir::{CompiledFunction, Op};
+use crate::ir::{CatchKind, CompiledFunction, Op};
 use crate::snapshot::{decode_bulk, encode_bulk, Snapshot, SNAPSHOT_MAGIC, SNAPSHOT_VERSION};
 use crate::value_stack::ValueStack;
 use crate::RawValue;
@@ -208,6 +209,13 @@ pub struct CallFrame {
     pub arity: usize,
 }
 
+struct CatchFrame {
+    call_depth: usize,
+    stack_restore: usize,
+    module_idx: u16,
+    handler_idx: u32,
+}
+
 /// Runtime state of an instantiated [`crate::Module`]
 pub struct InstantiatedModule {
     pub code: Arc<ModuleCode>,
@@ -215,7 +223,6 @@ pub struct InstantiatedModule {
     pub table_addrs: Vec<usize>,
     pub mem_addrs: Vec<usize>,
     pub global_addrs: Vec<usize>,
-    #[allow(dead_code)]
     pub tag_addrs: Vec<usize>,
     pub elem_addrs: Vec<usize>,
     pub data_addrs: Vec<usize>,
@@ -243,6 +250,8 @@ pub struct Store {
     // execution state
     stack: ValueStack,
     call_stack: Vec<CallFrame>,
+    catch_stack: Vec<CatchFrame>,
+    exceptions: Vec<Exception>,
     fuel: Option<u64>,
     pending_arity: Option<usize>,
     pending_suspension: Option<(String, String, Vec<RawValue>)>,
@@ -278,6 +287,8 @@ impl Store {
             data_segments: vec![],
             stack: ValueStack::with_capacity(1024),
             call_stack: Vec::new(),
+            catch_stack: Vec::new(),
+            exceptions: Vec::new(),
             fuel: None,
             pending_arity: None,
             pending_suspension: None,
@@ -910,6 +921,7 @@ impl Store {
             Err(e) => {
                 self.stack.clear();
                 self.call_stack.clear();
+                self.catch_stack.clear();
                 self.pending_arity = None;
                 Err(e)
             }
@@ -1160,6 +1172,8 @@ impl Store {
                     let old_base = self.call_stack[depth].stack_base;
                     let len = self.stack.len();
 
+                    self.pop_catch_frames(depth);
+
                     self.stack.copy_within(len - num_args..len, old_base);
                     self.stack.truncate(old_base + num_args);
                     self.call_stack.pop();
@@ -1206,6 +1220,8 @@ impl Store {
                     let old_base = self.call_stack[depth].stack_base;
                     let len = self.stack.len();
 
+                    self.pop_catch_frames(depth);
+
                     self.stack.copy_within(len - num_args..len, old_base);
                     self.stack.truncate(old_base + num_args);
                     self.call_stack.pop();
@@ -1233,6 +1249,9 @@ impl Store {
                     let num_args = self.func_num_params(func_addr);
                     let old_base = self.call_stack[depth].stack_base;
                     let len = self.stack.len();
+
+                    self.pop_catch_frames(depth);
+
                     self.stack.copy_within(len - num_args..len, old_base);
                     self.stack.truncate(old_base + num_args);
                     self.call_stack.pop();
@@ -1309,8 +1328,34 @@ impl Store {
                     );
                     self.stack.push(val);
                 }
-                Op::Throw { .. } => todo!(),
-                Op::ThrowRef => todo!(),
+                Op::TryCatchPush { handler_idx } => {
+                    self.catch_stack.push(CatchFrame {
+                        call_depth: self.call_stack.len(),
+                        stack_restore: self.stack.len(),
+                        module_idx: mi as u16,
+                        handler_idx,
+                    });
+                }
+                Op::TryCatchPop => {
+                    self.catch_stack.pop();
+                }
+                Op::Throw { tag_idx } => {
+                    let tag_addr = self.instances[mi].tag_addrs[tag_idx as usize];
+                    let n_values = self.tags[tag_addr].tag_type.0 .0.len();
+                    let values = self.stack.pop_n(n_values).to_vec();
+                    self.handle_exception(tag_addr, values)?;
+                }
+                Op::ThrowRef => {
+                    let exn_ref = self.stack.pop().as_ref();
+                    match exn_ref {
+                        Ref::Null => trap!(Trap::NullReference),
+                        Ref::ExnRef(idx) => {
+                            let exn = self.exceptions[idx].clone();
+                            self.handle_exception(exn.tag_addr, exn.values)?;
+                        }
+                        _ => trap!(Trap::NullReference),
+                    }
+                }
                 Op::TableGet { table_idx } => {
                     let ta = self.instances[mi].table_addrs[table_idx as usize];
                     let addr_type = self.tables[ta].table_type.addr_type;
@@ -2392,10 +2437,91 @@ impl Store {
         self.stack.push(locals[local_idx]);
     }
 
+    fn handle_exception(&mut self, tag_addr: usize, values: Vec<RawValue>) -> Result<()> {
+        while let Some(frame) = self.catch_stack.last() {
+            let mi = frame.module_idx as usize;
+            let handler_idx = frame.handler_idx as usize;
+            let call_depth = frame.call_depth;
+            let stack_restore = frame.stack_restore;
+
+            let clauses = self.instances[mi].code.catch_handlers[handler_idx].clone();
+
+            for clause in &clauses {
+                let matches = match clause.kind {
+                    CatchKind::Catch | CatchKind::CatchRef => {
+                        let clause_tag_addr = self.instances[mi].tag_addrs[clause.tag_idx as usize];
+                        clause_tag_addr == tag_addr
+                    }
+                    CatchKind::CatchAll | CatchKind::CatchAllRef => true,
+                };
+
+                if matches {
+                    self.catch_stack.pop();
+
+                    while self.call_stack.len() > call_depth {
+                        self.call_stack.pop();
+                    }
+
+                    self.stack.truncate(stack_restore);
+
+                    match clause.kind {
+                        CatchKind::Catch | CatchKind::CatchRef => {
+                            for v in &values {
+                                self.stack.push(*v);
+                            }
+                        }
+                        _ => {}
+                    }
+
+                    match clause.kind {
+                        CatchKind::CatchRef | CatchKind::CatchAllRef => {
+                            let exn_idx = self.exceptions.len();
+                            self.exceptions.push(Exception { tag_addr, values });
+                            self.stack.push(RawValue::from_ref(Ref::ExnRef(exn_idx)));
+                        }
+                        _ => {}
+                    }
+
+                    let n_values = clause.n_values as usize;
+                    let drop = clause.drop as usize;
+                    self.stack.keep_top(n_values, drop);
+
+                    let depth = self.call_stack.len() - 1;
+                    self.call_stack[depth].pc = clause.target as usize;
+
+                    return Ok(());
+                }
+            }
+
+            self.catch_stack.pop();
+        }
+
+        Err(Error::Exception(Exception { tag_addr, values }))
+    }
+
+    fn pop_catch_frames(&mut self, depth: usize) {
+        while self
+            .catch_stack
+            .last()
+            .is_some_and(|f| f.call_depth > depth)
+        {
+            self.catch_stack.pop();
+        }
+    }
+
     fn do_return(&mut self, depth: usize) {
         let arity = self.call_stack[depth].arity;
         let base = self.call_stack[depth].stack_base;
         let len = self.stack.len();
+        debug_assert!(
+            len >= arity,
+            "do_return: stack len {} < arity {}, base={}, func={}, mi={}",
+            len,
+            arity,
+            base,
+            self.call_stack[depth].compiled_func_idx,
+            self.call_stack[depth].module_idx,
+        );
         if arity > 0 {
             self.stack.copy_within(len - arity..len, base);
         }
@@ -2827,6 +2953,8 @@ impl Store {
             func_addr_to_module,
             stack,
             call_stack,
+            catch_stack: Vec::new(),
+            exceptions: Vec::new(),
             fuel,
             pending_arity,
             pending_suspension: None,

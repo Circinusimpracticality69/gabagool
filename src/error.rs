@@ -1,5 +1,7 @@
 use std::{array::TryFromSliceError, fmt, str::Utf8Error};
 
+use crate::execution_grammar::RawValue;
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17,6 +19,13 @@ pub enum Trap {
     CastFailure,
     OutOfBoundsArrayAccess,
     CallStackExhausted,
+}
+
+/// A thrown WebAssembly exception (uncaught)
+#[derive(Debug, Clone)]
+pub struct Exception {
+    pub tag_addr: usize,
+    pub values: Vec<RawValue>,
 }
 
 impl fmt::Display for Trap {
@@ -44,6 +53,7 @@ pub enum Error {
     Parse(String),
     Instantiation(String),
     Trap(Trap),
+    Exception(Exception),
 }
 
 impl fmt::Display for Error {
@@ -52,6 +62,7 @@ impl fmt::Display for Error {
             Self::Parse(msg) => write!(f, "parse error: {msg}"),
             Self::Instantiation(msg) => write!(f, "instantiation error: {msg}"),
             Self::Trap(trap) => write!(f, "trap: {trap}"),
+            Self::Exception(_) => write!(f, "unhandled exception"),
         }
     }
 }

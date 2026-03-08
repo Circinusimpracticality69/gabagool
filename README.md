@@ -18,9 +18,7 @@ This project aims to build a fully spec-compliant, performant interpreter whose 
 
 `gabagool` is not optimized and no serious profiling/benchmarking has been done. That said, the goal is to make it as performant as a pure interpreter can be. The most interesting direction is a translation phase that lowers WASM instructions into a compact intermediate representation, designed for efficient dispatch and serialization.
 
-`gabagool` is tested against the [WebAssembly spec test suite](https://github.com/WebAssembly/spec/tree/main/test/core). **1,893 tests pass out of 2,049 (92%).** `gabagool` passes on arithmetic, control flow, memory, tables, globals, function references, and imports/exports. It _currently_ fails on exceptions.
-
-Our testing harness uses modules from the test suite that cover execution, traps, resource exhaustion, and rejection (modules that should fail to parse or instantiate). We omit validation, cross-module invocation, garbage collection, and SIMD modules.
+`gabagool` is tested against the [WebAssembly spec test suite](https://github.com/WebAssembly/spec/tree/main/test/core). **1,899 tests pass out of 2,049 (93%).** `gabagool` passes on arithmetic, control flow, memory, tables, globals, function references, imports/exports, and exceptions. Remaining tests involve supporting SIMD and garbage collection.
 
 ```sh
 # run the test suite

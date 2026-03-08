@@ -8,7 +8,7 @@ use crate::binary_grammar::{
 };
 use crate::compiler::ModuleCode;
 use crate::execution_grammar::{ExportInstance, ExternalValue, RawValue, Ref};
-use crate::ir::{CompiledFunction, JumpTableEntry, Op};
+use crate::ir::{CatchKind, CompiledCatchClause, CompiledFunction, JumpTableEntry, Op};
 use crate::store::{CallFrame, InstantiatedModule};
 
 pub const SNAPSHOT_MAGIC: &[u8; 4] = b"gaba";
@@ -537,6 +537,10 @@ impl Snapshot for Ref {
                 3u8.encode(buf);
                 v.encode(buf);
             }
+            Self::ExnRef(a) => {
+                4u8.encode(buf);
+                a.encode(buf);
+            }
         }
     }
     fn decode(buf: &mut &[u8]) -> Self {
@@ -545,6 +549,7 @@ impl Snapshot for Ref {
             1 => Self::FunctionAddr(usize::decode(buf)),
             2 => Self::RefExtern(usize::decode(buf)),
             3 => Self::I31(i32::decode(buf)),
+            4 => Self::ExnRef(usize::decode(buf)),
             d => panic!("invalid Ref discriminant: {d}"),
         }
     }
@@ -663,6 +668,17 @@ impl Snapshot for ModuleCode {
             table.encode(buf);
         }
         self.shuffle_masks.encode(buf);
+        (self.catch_handlers.len() as u32).encode(buf);
+        for handler in &self.catch_handlers {
+            (handler.len() as u32).encode(buf);
+            for clause in handler {
+                (clause.kind as u8).encode(buf);
+                clause.tag_idx.encode(buf);
+                clause.target.encode(buf);
+                clause.n_values.encode(buf);
+                clause.drop.encode(buf);
+            }
+        }
     }
     fn decode(buf: &mut &[u8]) -> Self {
         let compiled_funcs = Vec::<CompiledFunction>::decode(buf);
@@ -673,12 +689,37 @@ impl Snapshot for ModuleCode {
             .map(|_| Vec::<JumpTableEntry>::decode(buf))
             .collect();
         let shuffle_masks = Vec::<[u8; 16]>::decode(buf);
+        let num_handlers = u32::decode(buf) as usize;
+        let catch_handlers = (0..num_handlers)
+            .map(|_| {
+                let num_clauses = u32::decode(buf) as usize;
+                (0..num_clauses)
+                    .map(|_| {
+                        let kind = match u8::decode(buf) {
+                            0 => CatchKind::Catch,
+                            1 => CatchKind::CatchRef,
+                            2 => CatchKind::CatchAll,
+                            3 => CatchKind::CatchAllRef,
+                            d => panic!("invalid CatchKind discriminant: {d}"),
+                        };
+                        CompiledCatchClause {
+                            kind,
+                            tag_idx: u32::decode(buf),
+                            target: u32::decode(buf),
+                            n_values: u16::decode(buf),
+                            drop: u16::decode(buf),
+                        }
+                    })
+                    .collect()
+            })
+            .collect();
         Self {
             compiled_funcs,
             types,
             v128_constants,
             jump_tables,
             shuffle_masks,
+            catch_handlers,
         }
     }
 }

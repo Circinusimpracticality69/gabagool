@@ -1,7 +1,7 @@
 use gabagool::{
     parser::Parser, AddrType, CompositeType, ExportInstance, ExternalValue, FunctionInstance,
     GlobalInstance, GlobalType, ImportDescription, Instance, Limit, MemoryInstance, MemoryType,
-    Module, RawValue, Ref, Store, ValueType,
+    Module, RawValue, Ref, Store, TagInstance, ValueType,
 };
 
 #[derive(Debug)]
@@ -93,8 +93,15 @@ fn setup_spectest_imports(store: &mut Store, module: &Module) -> Vec<ExternalVal
                 });
                 ExternalValue::Function { addr }
             }
-            ImportDescription::Tag(_) => {
+            ImportDescription::Tag(type_idx) => {
+                let function_type = match &module.types()[*type_idx as usize].composite_type {
+                    CompositeType::Func(ft) => ft.clone(),
+                    _ => panic!("expected function type at index {}", type_idx),
+                };
                 let addr = store.tags.len();
+                store.tags.push(gabagool::TagInstance {
+                    tag_type: function_type,
+                });
                 ExternalValue::Tag { addr }
             }
         })
@@ -162,6 +169,33 @@ fn spec_step_assert_trap(
             "step {} assert_trap(\"{}\", {:?}): expected trap, got {:?}",
             step, name, args, results
         ));
+    }
+}
+
+fn spec_step_assert_exception(
+    store: &mut Store,
+    instance: Instance,
+    name: &str,
+    args: &[RawValue],
+    step: usize,
+    failures: &mut Vec<String>,
+) {
+    match invoke_and_resume(store, instance, name, args) {
+        Ok(results) => {
+            failures.push(format!(
+                "step {} assert_exception(\"{}\", {:?}): expected exception, got {:?}",
+                step, name, args, results
+            ));
+        }
+        Err(gabagool::Error::Exception(_)) => {
+            // Expected - exception was thrown and not caught
+        }
+        Err(other) => {
+            failures.push(format!(
+                "step {} assert_exception(\"{}\", {:?}): expected exception, got error: {}",
+                step, name, args, other
+            ));
+        }
     }
 }
 

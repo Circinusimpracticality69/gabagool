@@ -306,6 +306,25 @@ mod spec_tests {
                         unlinkable_idx += 1;
                     }
 
+                    WastDirective::AssertException { exec, .. } => {
+                        if let WastExecute::Invoke(ref invoke) = exec {
+                            if module_idx < 0 || invoke.module.is_some() {
+                                continue;
+                            }
+
+                            let Some(args_code) = render_args(&invoke.args) else {
+                                continue;
+                            };
+
+                            let steps = &mut modules.last_mut().unwrap().1;
+                            let step_idx = steps.len();
+                            steps.push(format!(
+                                "    spec_step_assert_exception(&mut store, instance, \"{}\", &[{}], {}, &mut failures);",
+                                invoke.name, args_code, step_idx
+                            ));
+                        }
+                    }
+
                     _ => {}
                 }
             }

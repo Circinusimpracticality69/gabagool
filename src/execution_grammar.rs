@@ -10,6 +10,7 @@ pub enum Ref {
     FunctionAddr(usize) = 1,
     RefExtern(usize) = 2,
     I31(i32) = 3,
+    ExnRef(usize) = 4,
 }
 
 #[derive(Debug, Copy, Clone, Default)]
@@ -33,14 +34,15 @@ impl RawValue {
     }
 
     pub const fn as_ref(self) -> Ref {
-        let tag = self.0 >> 62;
-        let payload = self.0 & 0x3FFFFFFFFFFFFFFF;
+        let tag = self.0 >> 61;
+        let payload = self.0 & 0x1FFFFFFFFFFFFFFF;
 
         match tag {
             0 => Ref::Null,
             1 => Ref::FunctionAddr(payload as usize),
             2 => Ref::RefExtern(payload as usize),
             3 => Ref::I31(payload as i32),
+            4 => Ref::ExnRef(payload as usize),
             _ => unreachable!(),
         }
     }
@@ -48,9 +50,10 @@ impl RawValue {
     pub const fn from_ref(r: Ref) -> Self {
         let raw = match r {
             Ref::Null => 0u64,
-            Ref::FunctionAddr(a) => (1u64 << 62) | a as u64,
-            Ref::RefExtern(a) => (2u64 << 62) | a as u64,
-            Ref::I31(v) => (3u64 << 62) | (v as u32 as u64),
+            Ref::FunctionAddr(a) => (1u64 << 61) | a as u64,
+            Ref::RefExtern(a) => (2u64 << 61) | a as u64,
+            Ref::I31(v) => (3u64 << 61) | (v as u32 as u64),
+            Ref::ExnRef(a) => (4u64 << 61) | a as u64,
         };
 
         Self(raw)
