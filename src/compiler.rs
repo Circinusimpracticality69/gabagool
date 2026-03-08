@@ -388,6 +388,19 @@ impl<'a> Compiler<'a> {
 
         while i < self.ops.len() {
             match &self.ops[i..] {
+                [CompilerOp::Op(Op::LocalGet { local_idx }), CompilerOp::Op(Op::I32Store { offset, memory }), ..] =>
+                {
+                    out.push(
+                        Op::LocalGetI32Store {
+                            local_idx: *local_idx,
+                            offset: *offset,
+                            memory: *memory,
+                        }
+                        .into(),
+                    );
+
+                    i += 2;
+                }
                 [CompilerOp::Op(Op::LocalGet { local_idx }), CompilerOp::Op(Op::I32Load { offset, memory }), ..] =>
                 {
                     out.push(
@@ -3116,6 +3129,32 @@ mod tests {
             LocalGetI32Load {
                 local_idx: 0,
                 offset: 8,
+                memory: 0,
+            },
+            Return,
+        ]
+        "#);
+    }
+
+    #[test]
+    fn fuse_local_get_i32_store() {
+        let ops = compile_ops(vec![
+            Instruction::I32Const(42),
+            Instruction::LocalGet(0),
+            Instruction::I32Store(MemArg {
+                align: 2,
+                offset: 4,
+                memory: 0,
+            }),
+        ]);
+        insta::assert_debug_snapshot!(&ops, @r#"
+        [
+            I32Const {
+                value: 42,
+            },
+            LocalGetI32Store {
+                local_idx: 0,
+                offset: 4,
                 memory: 0,
             },
             Return,

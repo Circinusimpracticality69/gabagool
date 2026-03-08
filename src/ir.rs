@@ -909,6 +909,11 @@ pub enum Op {
         offset: u32,
         memory: u32,
     },
+    LocalGetI32Store {
+        local_idx: u32,
+        offset: u32,
+        memory: u32,
+    },
 }
 
 impl Op {

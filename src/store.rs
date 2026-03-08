@@ -2220,6 +2220,31 @@ impl Store {
                     let b: [u8; 4] = mem.data[ea..ea + 4].try_into().unwrap();
                     self.stack.push(i32::from_le_bytes(b));
                 }
+                Op::LocalGetI32Store {
+                    local_idx,
+                    offset,
+                    memory,
+                } => {
+                    let val = self.stack.pop();
+                    let locals = &self.call_stack[depth].locals;
+                    let mem_addr = self.instances[mi].mem_addrs[memory as usize];
+                    let addr_type = self.memories[mem_addr].memory_type.addr_type;
+                    let base = match addr_type {
+                        AddrType::I32 => locals[local_idx as usize].as_i32() as u64,
+                        AddrType::I64 => locals[local_idx as usize].as_i64() as u64,
+                    };
+
+                    let ea = base
+                        .checked_add(offset as u64)
+                        .and_then(|v| usize::try_from(v).ok());
+
+                    let mem = &mut self.memories[mem_addr];
+
+                    let Some(ea) = ea.filter(|&ea| ea.saturating_add(4) <= mem.data.len()) else {
+                        trap!(Trap::OutOfBoundsMemoryAccess);
+                    };
+                    mem.data[ea..ea + 4].copy_from_slice(&val.as_i32().to_le_bytes());
+                }
                 _ => todo!(),
             }
         }
