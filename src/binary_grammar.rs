@@ -1,22 +1,5 @@
 pub const MAGIC_NUMBER: [u8; 4] = *b"\0asm";
 
-pub mod section_id {
-    pub const CUSTOM_ID: u8 = 0;
-    pub const TYPE_ID: u8 = 1;
-    pub const IMPORT_ID: u8 = 2;
-    pub const FUNCTION_ID: u8 = 3;
-    pub const TABLE_ID: u8 = 4;
-    pub const MEMORY_ID: u8 = 5;
-    pub const GLOBAL_ID: u8 = 6;
-    pub const EXPORT_ID: u8 = 7;
-    pub const START_ID: u8 = 8;
-    pub const ELEMENT_ID: u8 = 9;
-    pub const CODE_ID: u8 = 10;
-    pub const DATA_ID: u8 = 11;
-    pub const DATA_COUNT_ID: u8 = 12;
-    pub const TAG_ID: u8 = 13;
-}
-
 #[derive(Debug, Clone)]
 pub struct ParsedModule {
     pub version: u8,

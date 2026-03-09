@@ -1617,27 +1617,42 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_section(&mut self, id: u8) -> Result<Section> {
-        use crate::binary_grammar::section_id::*;
-
         let size = self.read_u32()?;
+        let section_start = self.cursor;
+
+        ensure!(
+            section_start + size as usize <= self.buffer.len(),
+            Error::Parse("section size exceeds remaining bytes".into())
+        );
 
         let section = match id {
-            CUSTOM_ID => Section::Custom(self.parse_custom_section(size)?),
-            TYPE_ID => Section::Type(self.parse_type_section()?),
-            IMPORT_ID => Section::Import(self.parse_import_section()?),
-            FUNCTION_ID => Section::Function(self.parse_function_section()?),
-            TABLE_ID => Section::Table(self.parse_table_section()?),
-            MEMORY_ID => Section::Memory(self.parse_memory_section()?),
-            GLOBAL_ID => Section::Global(self.parse_global_section()?),
-            EXPORT_ID => Section::Export(self.parse_export_section()?),
-            START_ID => Section::Start(self.read_u32()?),
-            ELEMENT_ID => Section::Element(self.parse_element_section()?),
-            CODE_ID => Section::Code(self.parse_code_section()?),
-            DATA_ID => Section::Data(self.parse_data_section()?),
-            DATA_COUNT_ID => Section::DataCount(self.read_u32()?),
-            TAG_ID => Section::Tag(self.parse_tag_section()?),
+            0 => Section::Custom(self.parse_custom_section(size)?),
+            1 => Section::Type(self.parse_type_section()?),
+            2 => Section::Import(self.parse_import_section()?),
+            3 => Section::Function(self.parse_function_section()?),
+            4 => Section::Table(self.parse_table_section()?),
+            5 => Section::Memory(self.parse_memory_section()?),
+            6 => Section::Global(self.parse_global_section()?),
+            7 => Section::Export(self.parse_export_section()?),
+            8 => Section::Start(self.read_u32()?),
+            9 => Section::Element(self.parse_element_section()?),
+            10 => Section::Code(self.parse_code_section()?),
+            11 => Section::Data(self.parse_data_section()?),
+            12 => Section::DataCount(self.read_u32()?),
+            13 => Section::Tag(self.parse_tag_section()?),
             foreign_id => parse_err!("Encountered foreign section id: {}", foreign_id),
         };
+
+        if id != 0 {
+            let seen = self.cursor - section_start;
+            ensure!(
+                seen == size as usize,
+                Error::Parse(format!(
+                    "section {} size mismatch, expected {}, got {}",
+                    id, size, seen
+                ))
+            );
+        }
 
         Ok(section)
     }
