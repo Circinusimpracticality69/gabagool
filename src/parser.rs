@@ -143,8 +143,16 @@ impl<'a> Parser<'a> {
         Ok(1)
     }
 
+    fn peek_u8(&self) -> Result<u8> {
+        self.buffer
+            .get(self.cursor)
+            .copied()
+            .ok_or_else(|| Error::Parse("oob".into()))
+    }
+
     fn read_u8(&mut self) -> Result<u8> {
-        let b = self.read_slice(1)?[0];
+        let b = self.peek_u8()?;
+        self.cursor += 1;
 
         Ok(b)
     }
@@ -261,7 +269,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_heap_type(&mut self) -> Result<HeapType> {
-        let byte = self.buffer[self.cursor];
+        let byte = self.peek_u8()?;
         match byte {
             0x69..=0x74 => self.parse_abs_heap_type(),
             _ => {
@@ -277,7 +285,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_reference_type(&mut self) -> Result<RefType> {
-        let byte = self.buffer[self.cursor];
+        let byte = self.peek_u8()?;
         let r = match byte {
             0x70 => {
                 self.cursor += 1;
@@ -317,7 +325,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_value_type(&mut self) -> Result<ValueType> {
-        let byte = self.buffer[self.cursor];
+        let byte = self.peek_u8()?;
         let value_type = match byte {
             0x7F => {
                 self.cursor += 1;
@@ -362,7 +370,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_storage_type(&mut self) -> Result<StorageType> {
-        let byte = self.buffer[self.cursor];
+        let byte = self.peek_u8()?;
         match byte {
             0x78 => {
                 self.cursor += 1;
@@ -410,7 +418,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_sub_type(&mut self) -> Result<SubType> {
-        let byte = self.buffer[self.cursor];
+        let byte = self.peek_u8()?;
         match byte {
             0x4F => {
                 self.cursor += 1;
@@ -444,7 +452,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_rec_type(&mut self) -> Result<Vec<SubType>> {
-        let byte = self.buffer[self.cursor];
+        let byte = self.peek_u8()?;
         if byte == 0x4E {
             self.cursor += 1;
             Ok(self.parse_vec(Self::parse_sub_type)?)
@@ -524,7 +532,7 @@ impl<'a> Parser<'a> {
     // 5.4: Instructions
 
     fn parse_block_type(&mut self) -> Result<BlockType> {
-        let byte = self.buffer[self.cursor];
+        let byte = self.peek_u8()?;
         if byte == 0x40 {
             self.cursor += 1;
             Ok(BlockType::Empty)
@@ -1328,7 +1336,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_table_def(&mut self) -> Result<TableDef> {
-        let byte = self.buffer[self.cursor];
+        let byte = self.peek_u8()?;
         if byte == 0x40 {
             // table with init expression: 0x40 0x00 reftype limit expr
             self.cursor += 1;
