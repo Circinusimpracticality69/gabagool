@@ -1547,9 +1547,21 @@ impl<'a> Parser<'a> {
             .pop_front()
             .ok_or_else(|| Error::Parse("Function type list empty".into()))?;
 
+        let locals = self.parse_vec(Self::parse_local)?;
+
+        let total_locals = locals
+            .iter()
+            .map(|Local { count, .. }| *count as usize)
+            .sum::<usize>();
+
+        ensure!(
+            total_locals <= u32::MAX as usize,
+            Error::Parse("too many locals".into())
+        );
+
         let func = Function {
             type_index,
-            locals: self.parse_vec(Self::parse_local)?,
+            locals,
             body: self.parse_expression()?,
         };
 
