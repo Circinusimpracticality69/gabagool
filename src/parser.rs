@@ -1270,6 +1270,10 @@ impl<'a> Parser<'a> {
         let current_pos = self.cursor;
 
         let name = self.parse_name()?;
+        ensure!(
+            self.cursor - current_pos <= size as usize,
+            Error::Parse("custom section name exceeds section size".into())
+        );
         let slice_len = size as usize - (self.cursor - current_pos);
 
         let bytes = self.read_slice(slice_len)?.to_vec();
