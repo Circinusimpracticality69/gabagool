@@ -37,4 +37,7 @@ https://github.com/bytecodealliance/wasmtime/issues/4002<br>
 
 https://www.infoq.com/podcasts/web-assembly-component-model/<br>
 https://blog.sunfishcode.online/what-is-a-wasm-component/<br>
-https://www.fermyon.com/blog/webassembly-component-model
+https://www.fermyon.com/blog/webassembly-component-model<br>
+https://github.com/WebAssembly/component-model/blob/main/design/mvp/Explainer.md<br>
+https://github.com/WebAssembly/component-model/blob/main/design/mvp/Binary.md<br>
+https://github.com/WebAssembly/component-model/blob/main/design/mvp/CanonicalABI.md<br>
