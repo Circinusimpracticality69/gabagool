@@ -549,6 +549,9 @@ impl<'a> Parser<'a> {
         } else {
             (align_raw, 0)
         };
+
+        ensure!(align <= 4, Error::Parse("malformed memop flags".into()));
+
         Ok(MemArg {
             align,
             offset: self.read_u64()?,
