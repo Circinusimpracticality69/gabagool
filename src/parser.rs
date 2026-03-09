@@ -37,6 +37,10 @@ impl<'a> Parser<'a> {
         let mut module = ParsedModule::new(self.parse_preamble()?);
         let mut data_count: Option<u32> = None;
         let mut last_non_custom_id: u8 = 0;
+        let mut has_function_section = false;
+        let mut has_code_section = false;
+        let mut function_count = 0;
+        let mut code_count = 0;
 
         while self.cursor < self.buffer.len() {
             let id = self.read_u8()?;
@@ -60,6 +64,8 @@ impl<'a> Parser<'a> {
                     mut import_declarations,
                 }) => module.import_declarations.append(&mut import_declarations),
                 Section::Function(FunctionSection { indices }) => {
+                    has_function_section = true;
+                    function_count = indices.len() as u32;
                     self.function_types.extend(indices)
                 }
                 Section::Table(TableSection { mut tables }) => module.tables.append(&mut tables),
@@ -76,13 +82,28 @@ impl<'a> Parser<'a> {
                 Section::Element(ElementSection { mut elements }) => {
                     module.element_segments.append(&mut elements)
                 }
-                Section::Code(CodeSection { mut codes }) => module.functions.append(&mut codes),
+                Section::Code(CodeSection { mut codes }) => {
+                    has_code_section = true;
+                    code_count = codes.len() as u32;
+                    module.functions.append(&mut codes);
+                }
                 Section::Data(DataSection { mut data_segments }) => {
                     module.data_segments.append(&mut data_segments)
                 }
                 Section::DataCount(n) => data_count = Some(n),
                 Section::Tag(TagSection { mut tags }) => module.tags.append(&mut tags),
             }
+        }
+
+        if has_function_section || has_code_section {
+            ensure!(
+                has_function_section && has_code_section && function_count == code_count,
+                Error::Parse(format!(
+                    "function and code section have inconsistent lengths: {} functions vs {} code entries",
+                    if has_function_section { function_count } else { 0 },
+                    if has_code_section { code_count } else { 0 },
+                ))
+            );
         }
 
         if let Some(count) = data_count {
