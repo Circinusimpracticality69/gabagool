@@ -21,6 +21,7 @@ pub struct Parser<'a> {
     cursor: usize,
     buffer: &'a [u8],
     function_types: VecDeque<u32>,
+    uses_data_count_instructions: bool,
 }
 
 impl<'a> Parser<'a> {
@@ -29,6 +30,7 @@ impl<'a> Parser<'a> {
             buffer,
             cursor: 0,
             function_types: VecDeque::new(),
+            uses_data_count_instructions: false,
         }
     }
 
@@ -114,6 +116,13 @@ impl<'a> Parser<'a> {
                     count,
                     module.data_segments.len()
                 ))
+            );
+        }
+
+        if self.uses_data_count_instructions {
+            ensure!(
+                data_count.is_some(),
+                Error::Parse("data count section required".into())
             );
         }
 
@@ -756,8 +765,14 @@ impl<'a> Parser<'a> {
                 5 => Instruction::I64TruncSaturatedF32Unsigned,
                 6 => Instruction::I64TruncSaturatedF64Signed,
                 7 => Instruction::I64TruncSaturatedF64Unsigned,
-                8 => Instruction::MemoryInit(self.read_u32()?, self.read_u32()?),
-                9 => Instruction::DataDrop(self.read_u32()?),
+                8 => {
+                    self.uses_data_count_instructions = true;
+                    Instruction::MemoryInit(self.read_u32()?, self.read_u32()?)
+                }
+                9 => {
+                    self.uses_data_count_instructions = true;
+                    Instruction::DataDrop(self.read_u32()?)
+                }
                 10 => {
                     let dst_mem = self.read_u32()?;
                     let src_mem = self.read_u32()?;
