@@ -7,6 +7,7 @@ use crate::binary_grammar::{
 use crate::compiler::{self, ModuleCode};
 use crate::error::Result;
 use crate::parser::Parser;
+use crate::{parse_err, Parsed};
 
 /// A parsed and compiled WASM module ready to be instantiated
 pub struct Module {
@@ -26,7 +27,10 @@ pub struct Module {
 
 impl Module {
     pub fn new(bytes: &[u8]) -> Result<Self> {
-        let parsed = Parser::new(bytes).parse_module()?;
+        let Parsed::Module(parsed) = Parser::new(bytes).parse()? else {
+            parse_err!("expected module");
+        };
+
         let code = compiler::compile(&parsed);
 
         Ok(Self {

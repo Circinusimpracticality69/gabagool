@@ -2,17 +2,24 @@ use std::cmp::min;
 use std::collections::VecDeque;
 
 use crate::error::{Error, Result};
-use crate::{ensure, parse_err};
+use crate::{
+    ensure, parse_err, Alias, CanonOpts, CanonicalDef, ComponentDefinedType, ComponentExport,
+    ComponentExportDecl, ComponentFuncResult, ComponentFuncType, ComponentImport,
+    ComponentInlineExport, ComponentInstance, ComponentInstantiateArg, ComponentSort,
+    ComponentStart, ComponentTypeDecl, ComponentTypeDef, ComponentValType, CoreExportDecl,
+    CoreInlineExport, CoreInstance, CoreInstantiateArg, CoreModuleDecl, CoreModuleType, CoreType,
+    ExternDesc, InstanceTypeDecl, Parsed, ParsedComponent, PrimitiveValType, StringEncoding,
+    TypeBound, VariantCase,
+};
 
 use crate::binary_grammar::{
     AddrType, ArrayType, BlockType, CatchClause, CodeSection, CompositeType, CustomSection,
     DataMode, DataSection, DataSegment, ElementMode, ElementSection, ElementSegment, Export,
     ExportDescription, ExportSection, FieldType, Function, FunctionSection, FunctionType, Global,
     GlobalSection, GlobalType, HeapType, ImportDeclaration, ImportDescription, ImportSection,
-    Instruction, Limit, Local, MemArg, MemorySection, MemoryType, Mutability, ParsedModule,
-    RefType, ResultType, Section, StorageType, StructType, SubType, TableDef, TableSection,
-    TableType, Tag, TagSection, TypeSection, ValueType, MAGIC_NUMBER, TERM_ELSE_BYTE,
-    TERM_END_BYTE,
+    Instruction, Limit, Local, MemArg, MemorySection, MemoryType, ModuleSection, Mutability,
+    ParsedModule, RefType, ResultType, StorageType, StructType, SubType, TableDef, TableSection,
+    TableType, Tag, TagSection, TypeSection, ValueType, TERM_ELSE_BYTE, TERM_END_BYTE,
 };
 use crate::leb128::{self, MAX_LEB128_LEN_32, MAX_LEB128_LEN_64};
 
@@ -34,9 +41,535 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parses a .wasm file in its entirety.
-    pub fn parse_module(&mut self) -> Result<ParsedModule> {
-        let mut module = ParsedModule::new(self.parse_preamble()?);
+    pub fn parse(&mut self) -> Result<Parsed> {
+        let (version, layer) = self.parse_preamble()?;
+
+        let out = match (version, layer) {
+            (0x01, 0x00) => Parsed::Module(self.parse_module()?),
+            (0x0d, 0x01) => Parsed::Component(self.parse_component()?),
+            _ => parse_err!("unrecognized preamble. version {version} layer {layer}"),
+        };
+
+        Ok(out)
+    }
+
+    fn parse_component(&mut self) -> Result<ParsedComponent> {
+        let mut modules = Vec::new();
+        let mut components = Vec::new();
+        let mut core_types = Vec::new();
+        let mut component_types = Vec::new();
+        let mut core_instances = Vec::new();
+        let mut aliases = Vec::new();
+        let mut instances = Vec::new();
+        let mut imports = Vec::new();
+        let mut canonicals = Vec::new();
+        let mut start = None;
+        let mut exports = Vec::new();
+
+        while self.cursor < self.buffer.len() {
+            let id = self.read_u8()?;
+            let body_len = self.read_u32()?;
+            let expected_section_end = self.cursor + body_len as usize;
+
+            match id {
+                0 => {
+                    self.cursor = expected_section_end;
+                }
+                1 => {
+                    let full_buffer = self.buffer;
+                    self.buffer = &full_buffer[..expected_section_end];
+                    let Parsed::Module(module) = self.parse()? else {
+                        parse_err!("expected core module in section 1");
+                    };
+                    modules.push(module);
+                    self.buffer = full_buffer;
+                }
+                2 => {
+                    core_instances.extend(self.parse_vec(Self::parse_core_instance)?);
+                }
+                3 => {
+                    core_types.extend(self.parse_vec(Self::parse_core_type)?);
+                }
+                4 => {
+                    let full_buffer = self.buffer;
+                    self.buffer = &full_buffer[..expected_section_end];
+                    let Parsed::Component(component) = self.parse()? else {
+                        parse_err!("expected component in section 4");
+                    };
+                    components.push(component);
+                    self.buffer = full_buffer;
+                }
+                5 => {
+                    instances.extend(self.parse_vec(Self::parse_component_instance)?);
+                }
+                6 => {
+                    aliases.extend(self.parse_vec(Self::parse_alias)?);
+                }
+                7 => match self.parse_vec(Self::parse_component_type_def) {
+                    Ok(defs) => component_types.extend(defs),
+                    Err(_) => self.cursor = expected_section_end,
+                },
+                8 => match self.parse_vec(Self::parse_canonical_def) {
+                    Ok(defs) => canonicals.extend(defs),
+                    Err(_) => self.cursor = expected_section_end,
+                },
+                9 => {
+                    let func_idx = self.read_u32()?;
+                    let args = self.parse_vec(Self::read_u32)?;
+                    let results = self.read_u32()?;
+                    start = Some(ComponentStart {
+                        func_idx,
+                        args,
+                        results,
+                    });
+                }
+                10 => {
+                    imports.extend(self.parse_vec(Self::parse_component_import)?);
+                }
+                11 => {
+                    exports.extend(self.parse_vec(Self::parse_component_export)?);
+                }
+                12 => {
+                    self.cursor = expected_section_end;
+                }
+                foreign_section_id => parse_err!("unrecognized section id {foreign_section_id}"),
+            };
+
+            ensure!(
+                self.cursor == expected_section_end,
+                Error::Parse(format!(
+                    "component section {id} size mismatch: expected to end at {expected_section_end}, got {}",
+                    self.cursor
+                ))
+            );
+        }
+
+        Ok(ParsedComponent {
+            modules,
+            components,
+            core_types,
+            component_types,
+            core_instances,
+            aliases,
+            instances,
+            imports,
+            exports,
+            canonicals,
+            start,
+        })
+    }
+
+    fn parse_core_instance(&mut self) -> Result<CoreInstance> {
+        let out = match self.read_u8()? {
+            0 => CoreInstance::Instantiate {
+                module_idx: self.read_u32()?,
+                args: self.parse_vec(|p| {
+                    let name = p.parse_name()?;
+                    let sort = p.read_u8()?;
+                    ensure!(
+                        sort == 0x12,
+                        Error::Parse(format!(
+                            "expected instance sort (0x12) in core instantiate arg, got {sort:#x}"
+                        ))
+                    );
+                    Ok(CoreInstantiateArg {
+                        name,
+                        instance_idx: p.read_u32()?,
+                    })
+                })?,
+            },
+            1 => CoreInstance::FromExports(self.parse_vec(|p| {
+                Ok(CoreInlineExport {
+                    name: p.parse_name()?,
+                    sort: p.read_u8()?.try_into()?,
+                    idx: p.read_u32()?,
+                })
+            })?),
+            b => parse_err!("unknown core instance type: {b:#x}"),
+        };
+
+        Ok(out)
+    }
+
+    fn parse_component_instance(&mut self) -> Result<ComponentInstance> {
+        let out = match self.read_u8()? {
+            0 => ComponentInstance::Instantiate {
+                component_idx: self.read_u32()?,
+                args: self.parse_vec(|p| {
+                    Ok(ComponentInstantiateArg {
+                        name: p.parse_name()?,
+                        sort: p.parse_component_sort()?,
+                        idx: p.read_u32()?,
+                    })
+                })?,
+            },
+            1 => ComponentInstance::FromExports(self.parse_vec(|p| {
+                Ok(ComponentInlineExport {
+                    name: p.parse_component_name()?,
+                    sort: p.parse_component_sort()?,
+                    idx: p.read_u32()?,
+                })
+            })?),
+            b => parse_err!("unknown component instance type: {b:#x}"),
+        };
+
+        Ok(out)
+    }
+
+    fn parse_component_sort(&mut self) -> Result<ComponentSort> {
+        let out = match self.read_u8()? {
+            0x00 => ComponentSort::Core(self.read_u8()?.try_into()?),
+            0x01 => ComponentSort::Func,
+            0x02 => ComponentSort::Value,
+            0x03 => ComponentSort::Type,
+            0x04 => ComponentSort::Component,
+            0x05 => ComponentSort::Instance,
+            b => parse_err!("unknown component sort: {b:#x}"),
+        };
+
+        Ok(out)
+    }
+
+    fn parse_alias(&mut self) -> Result<Alias> {
+        let sort = self.parse_component_sort()?;
+        let out = match self.read_u8()? {
+            0 => Alias::Export {
+                sort,
+                instance_idx: self.read_u32()?,
+                name: self.parse_name()?,
+            },
+            1 => Alias::CoreExport {
+                sort,
+                instance_idx: self.read_u32()?,
+                name: self.parse_name()?,
+            },
+            2 => Alias::Outer {
+                sort,
+                count: self.read_u32()?,
+                idx: self.read_u32()?,
+            },
+            b => parse_err!("unknown alias target: {b:#x}"),
+        };
+
+        Ok(out)
+    }
+
+    fn parse_component_import(&mut self) -> Result<ComponentImport> {
+        Ok(ComponentImport {
+            name: self.parse_component_name()?,
+            desc: self.parse_extern_desc()?,
+        })
+    }
+
+    fn parse_component_export(&mut self) -> Result<ComponentExport> {
+        Ok(ComponentExport {
+            name: self.parse_component_name()?,
+            sort: self.parse_component_sort()?,
+            idx: self.read_u32()?,
+            desc: match self.read_u8()? {
+                0x00 => None,
+                0x01 => Some(self.parse_extern_desc()?),
+                b => parse_err!("unknown extern desc option: {b:#x}"),
+            },
+        })
+    }
+
+    fn parse_component_name(&mut self) -> Result<String> {
+        let kind = self.read_u8()?;
+        let name = self.parse_name()?;
+        if kind == 1 {
+            let _version = self.parse_name()?;
+        }
+
+        Ok(name)
+    }
+
+    fn parse_extern_desc(&mut self) -> Result<ExternDesc> {
+        let b = self.read_u8()?;
+        self.parse_extern_desc_with_byte(b)
+    }
+
+    fn parse_extern_desc_with_byte(&mut self, b: u8) -> Result<ExternDesc> {
+        let out = match b {
+            0x00 => {
+                let sort = self.read_u8()?;
+                ensure!(
+                    sort == 0x11,
+                    Error::Parse(format!("expected core module sort (0x11), got {sort:#x}"))
+                );
+                ExternDesc::CoreModule(self.read_u32()?)
+            }
+            0x01 => ExternDesc::Func(self.read_u32()?),
+            0x03 => {
+                let bound = match self.read_u8()? {
+                    0 => TypeBound::Eq(self.read_u32()?),
+                    1 => TypeBound::SubResource,
+                    b => parse_err!("unknown type bound: {b:#x}"),
+                };
+                ExternDesc::Type(bound)
+            }
+            0x04 => ExternDesc::Component(self.read_u32()?),
+            0x05 => ExternDesc::Instance(self.read_u32()?),
+            b => parse_err!("unknown extern desc: {b:#x}"),
+        };
+
+        Ok(out)
+    }
+
+    fn parse_canonical_def(&mut self) -> Result<CanonicalDef> {
+        let opcode = self.read_u8()?;
+        let out = match opcode {
+            0 => {
+                let second = self.read_u8()?;
+
+                ensure!(
+                    second == 0,
+                    Error::Parse(format!("expected 0x00 after canonical lift, got {second}"))
+                );
+
+                CanonicalDef::Lift {
+                    core_func_idx: self.read_u32()?,
+                    opts: self.parse_canon_opts()?,
+                    type_idx: self.read_u32()?,
+                }
+            }
+            1 => {
+                let second = self.read_u8()?;
+
+                ensure!(
+                    second == 0,
+                    Error::Parse(format!(
+                        "expected 0x00 after canonical lower, got {second:#x}"
+                    ))
+                );
+
+                CanonicalDef::Lower {
+                    func_idx: self.read_u32()?,
+                    opts: self.parse_canon_opts()?,
+                }
+            }
+            2 => CanonicalDef::ResourceNew(self.read_u32()?),
+            3 => CanonicalDef::ResourceDrop(self.read_u32()?),
+            4 => CanonicalDef::ResourceRep(self.read_u32()?),
+            b => parse_err!("unknown canonical opcode: {b:#x}"),
+        };
+
+        Ok(out)
+    }
+
+    fn parse_canon_opts(&mut self) -> Result<CanonOpts> {
+        let count = self.read_u32()?;
+        let mut opts = CanonOpts::default();
+        for _ in 0..count {
+            match self.read_u8()? {
+                0 => opts.string_encoding = StringEncoding::Utf8,
+                1 => opts.string_encoding = StringEncoding::Utf16,
+                2 => opts.string_encoding = StringEncoding::Latin1Utf16,
+                3 => opts.memory = Some(self.read_u32()?),
+                4 => opts.realloc = Some(self.read_u32()?),
+                5 => opts.post_return = Some(self.read_u32()?),
+                b => parse_err!("unknown canon opt: {b:#x}"),
+            }
+        }
+        Ok(opts)
+    }
+
+    fn parse_core_type(&mut self) -> Result<CoreType> {
+        let byte = self.peek_u8()?;
+        let out = if byte == 0x50 {
+            self.cursor += 1;
+
+            CoreType::Module(self.parse_core_module_type()?)
+        } else if byte == 0x00 {
+            let saved = self.cursor;
+            self.cursor += 1;
+
+            if self.peek_u8()? == 0x50 {
+                self.cursor += 1;
+                CoreType::SubType(SubType {
+                    is_final: false,
+                    supertypes: self.parse_vec(Self::read_u32)?,
+                    composite_type: self.parse_composite_type()?,
+                })
+            } else {
+                self.cursor = saved;
+                CoreType::SubType(self.parse_sub_type()?)
+            }
+        } else {
+            CoreType::SubType(self.parse_sub_type()?)
+        };
+
+        Ok(out)
+    }
+
+    fn parse_core_module_type(&mut self) -> Result<CoreModuleType> {
+        Ok(CoreModuleType {
+            declarations: self.parse_vec(Self::parse_core_module_decl)?,
+        })
+    }
+
+    fn parse_core_module_decl(&mut self) -> Result<CoreModuleDecl> {
+        let out = match self.read_u8()? {
+            0 => CoreModuleDecl::Import(self.parse_import()?),
+            1 => CoreModuleDecl::Type(self.parse_sub_type()?),
+            2 => CoreModuleDecl::Alias(self.parse_alias()?),
+            3 => CoreModuleDecl::Export(CoreExportDecl {
+                name: self.parse_name()?,
+                description: match self.read_u8()? {
+                    0x00 => ImportDescription::Func(self.read_u32()?),
+                    0x01 => ImportDescription::Table(self.parse_table_type()?),
+                    0x02 => ImportDescription::Mem(self.parse_memory_type()?),
+                    0x03 => ImportDescription::Global(self.parse_global_type()?),
+                    0x04 => {
+                        let _attribute = self.read_u8()?;
+                        ImportDescription::Tag(self.read_u32()?)
+                    }
+                    b => parse_err!("unknown core export desc: {b:#x}"),
+                },
+            }),
+            b => parse_err!("unknown core module decl: {b:#x}"),
+        };
+
+        Ok(out)
+    }
+
+    fn parse_component_type_def(&mut self) -> Result<ComponentTypeDef> {
+        let out = match self.peek_u8()? {
+            0x40 => {
+                self.cursor += 1;
+                ComponentTypeDef::Func(self.parse_component_func_type()?)
+            }
+            0x41 => {
+                self.cursor += 1;
+                ComponentTypeDef::Component(self.parse_vec(Self::parse_component_type_decl)?)
+            }
+            0x42 => {
+                self.cursor += 1;
+                ComponentTypeDef::Instance(self.parse_vec(Self::parse_instance_type_decl)?)
+            }
+            0x3f => {
+                self.cursor += 1;
+                let _rep = self.read_u8()?;
+                ComponentTypeDef::Resource {
+                    dtor: match self.read_u8()? {
+                        0 => None,
+                        1 => Some(self.read_u32()?),
+                        b => parse_err!("expected 0x00 or 0x01 for resource dtor flag, got {b:#x}"),
+                    },
+                }
+            }
+            _ => ComponentTypeDef::Defined(self.parse_component_defined_type()?),
+        };
+
+        Ok(out)
+    }
+
+    fn parse_component_func_type(&mut self) -> Result<ComponentFuncType> {
+        Ok(ComponentFuncType {
+            params: self.parse_vec(Self::parse_labeled_val_type)?,
+            results: {
+                match self.read_u8()? {
+                    0x00 => ComponentFuncResult::Unnamed(self.parse_component_val_type()?),
+                    0x01 => {
+                        ComponentFuncResult::Named(self.parse_vec(Self::parse_labeled_val_type)?)
+                    }
+                    b => parse_err!("expected 0x00 or 0x01 for func result tag, got {b:#x}"),
+                }
+            },
+        })
+    }
+
+    fn parse_labeled_val_type(&mut self) -> Result<(String, ComponentValType)> {
+        Ok((self.parse_name()?, self.parse_component_val_type()?))
+    }
+
+    fn parse_component_val_type(&mut self) -> Result<ComponentValType> {
+        let b = self.peek_u8()?;
+        let out = match b {
+            0x68..=0x7f => {
+                self.cursor += 1;
+
+                ComponentValType::Primitive(PrimitiveValType::from_byte(b)?)
+            }
+            _ => ComponentValType::Type(self.read_u32()?),
+        };
+
+        Ok(out)
+    }
+
+    fn parse_component_defined_type(&mut self) -> Result<ComponentDefinedType> {
+        let out = match self.read_u8()? {
+            0x72 => ComponentDefinedType::Record(self.parse_vec(Self::parse_labeled_val_type)?),
+            0x71 => ComponentDefinedType::Variant(self.parse_vec(Self::parse_variant_case)?),
+            0x70 => ComponentDefinedType::List(self.parse_component_val_type()?),
+            0x6f => ComponentDefinedType::Tuple(self.parse_vec(Self::parse_component_val_type)?),
+            0x6e => ComponentDefinedType::Flags(self.parse_vec(Self::parse_name)?),
+            0x6d => ComponentDefinedType::Enum(self.parse_vec(Self::parse_name)?),
+            0x6b => ComponentDefinedType::Option(self.parse_component_val_type()?),
+            0x6a => ComponentDefinedType::Result {
+                ok: self.parse_optional_val_type()?,
+                err: self.parse_optional_val_type()?,
+            },
+            0x69 => ComponentDefinedType::Own(self.read_u32()?),
+            0x68 => ComponentDefinedType::Borrow(self.read_u32()?),
+            b @ 0x73..=0x7f => ComponentDefinedType::Primitive(PrimitiveValType::from_byte(b)?),
+            b => parse_err!("unknown component defined type: {b:#x}"),
+        };
+
+        Ok(out)
+    }
+
+    fn parse_optional_val_type(&mut self) -> Result<Option<ComponentValType>> {
+        let out = match self.read_u8()? {
+            0 => None,
+            1 => Some(self.parse_component_val_type()?),
+            b => parse_err!("expected 0x00 or 0x01 for optional valtype, got {b:#x}"),
+        };
+
+        Ok(out)
+    }
+
+    fn parse_variant_case(&mut self) -> Result<VariantCase> {
+        let name = self.parse_name()?;
+        let ty = self.parse_optional_val_type()?;
+        let refines = match self.read_u8()? {
+            0 => None,
+            1 => Some(self.read_u32()?),
+            b => parse_err!("expected 0x00 or 0x01 for variant refines, got {b:#x}"),
+        };
+        Ok(VariantCase { name, ty, refines })
+    }
+
+    fn parse_instance_type_decl(&mut self) -> Result<InstanceTypeDecl> {
+        let tag = self.read_u8()?;
+        let out = match tag {
+            0 => InstanceTypeDecl::CoreType(self.parse_core_type()?),
+            1 => InstanceTypeDecl::Type(self.parse_component_type_def()?),
+            2 => InstanceTypeDecl::Alias(self.parse_alias()?),
+            4 => InstanceTypeDecl::Export(ComponentExportDecl {
+                name: self.parse_component_name()?,
+                desc: self.parse_extern_desc()?,
+            }),
+            b => parse_err!("unknown instance type decl: {b:#x}"),
+        };
+
+        Ok(out)
+    }
+
+    fn parse_component_type_decl(&mut self) -> Result<ComponentTypeDecl> {
+        let byte = self.peek_u8()?;
+        let out = if byte == 3 {
+            self.cursor += 1;
+            ComponentTypeDecl::Import(self.parse_component_import()?)
+        } else {
+            ComponentTypeDecl::Instance(self.parse_instance_type_decl()?)
+        };
+
+        Ok(out)
+    }
+
+    fn parse_module(&mut self) -> Result<ParsedModule> {
+        let mut module = ParsedModule::default();
         let mut data_count: Option<u32> = None;
         let mut last_non_custom_id: u8 = 0;
         let mut has_function_section = false;
@@ -59,41 +592,43 @@ impl<'a> Parser<'a> {
                 last_non_custom_id = order;
             }
 
-            match self.parse_section(id)? {
-                Section::Custom(custom) => module.customs.push(custom),
-                Section::Type(TypeSection { mut types }) => module.types.append(&mut types),
-                Section::Import(ImportSection {
+            match self.parse_module_section(id)? {
+                ModuleSection::Custom(custom) => module.customs.push(custom),
+                ModuleSection::Type(TypeSection { mut types }) => module.types.append(&mut types),
+                ModuleSection::Import(ImportSection {
                     mut import_declarations,
                 }) => module.import_declarations.append(&mut import_declarations),
-                Section::Function(FunctionSection { indices }) => {
+                ModuleSection::Function(FunctionSection { indices }) => {
                     has_function_section = true;
                     function_count = indices.len() as u32;
                     self.function_types.extend(indices)
                 }
-                Section::Table(TableSection { mut tables }) => module.tables.append(&mut tables),
-                Section::Memory(MemorySection { mut memories }) => {
+                ModuleSection::Table(TableSection { mut tables }) => {
+                    module.tables.append(&mut tables)
+                }
+                ModuleSection::Memory(MemorySection { mut memories }) => {
                     module.mems.append(&mut memories)
                 }
-                Section::Global(GlobalSection { mut globals }) => {
+                ModuleSection::Global(GlobalSection { mut globals }) => {
                     module.globals.append(&mut globals)
                 }
-                Section::Export(ExportSection { mut exports }) => {
+                ModuleSection::Export(ExportSection { mut exports }) => {
                     module.exports.append(&mut exports)
                 }
-                Section::Start(idx) => module.start = Some(idx),
-                Section::Element(ElementSection { mut elements }) => {
+                ModuleSection::Start(idx) => module.start = Some(idx),
+                ModuleSection::Element(ElementSection { mut elements }) => {
                     module.element_segments.append(&mut elements)
                 }
-                Section::Code(CodeSection { mut codes }) => {
+                ModuleSection::Code(CodeSection { mut codes }) => {
                     has_code_section = true;
                     code_count = codes.len() as u32;
                     module.functions.append(&mut codes);
                 }
-                Section::Data(DataSection { mut data_segments }) => {
+                ModuleSection::Data(DataSection { mut data_segments }) => {
                     module.data_segments.append(&mut data_segments)
                 }
-                Section::DataCount(n) => data_count = Some(n),
-                Section::Tag(TagSection { mut tags }) => module.tags.append(&mut tags),
+                ModuleSection::DataCount(n) => data_count = Some(n),
+                ModuleSection::Tag(TagSection { mut tags }) => module.tags.append(&mut tags),
             }
         }
 
@@ -129,18 +664,14 @@ impl<'a> Parser<'a> {
         Ok(module)
     }
 
-    fn parse_preamble(&mut self) -> Result<u8> {
+    fn parse_preamble(&mut self) -> Result<(u8, u8)> {
         ensure!(
-            self.read_slice(4)? == MAGIC_NUMBER,
+            self.read_slice(4)? == b"\0asm",
             Error::Parse("Expected magic number in preamble.".into())
         );
 
-        ensure!(
-            self.read_slice(4)? == [1, 0, 0, 0],
-            Error::Parse("Expected version 1.".into())
-        );
-
-        Ok(1)
+        let preamble = self.read_slice(4)?;
+        Ok((preamble[0], preamble[2]))
     }
 
     fn peek_u8(&self) -> Result<u8> {
@@ -1643,7 +2174,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_section(&mut self, id: u8) -> Result<Section> {
+    fn parse_module_section(&mut self, id: u8) -> Result<ModuleSection> {
         let size = self.read_u32()?;
         let section_start = self.cursor;
 
@@ -1653,20 +2184,20 @@ impl<'a> Parser<'a> {
         );
 
         let section = match id {
-            0 => Section::Custom(self.parse_custom_section(size)?),
-            1 => Section::Type(self.parse_type_section()?),
-            2 => Section::Import(self.parse_import_section()?),
-            3 => Section::Function(self.parse_function_section()?),
-            4 => Section::Table(self.parse_table_section()?),
-            5 => Section::Memory(self.parse_memory_section()?),
-            6 => Section::Global(self.parse_global_section()?),
-            7 => Section::Export(self.parse_export_section()?),
-            8 => Section::Start(self.read_u32()?),
-            9 => Section::Element(self.parse_element_section()?),
-            10 => Section::Code(self.parse_code_section()?),
-            11 => Section::Data(self.parse_data_section()?),
-            12 => Section::DataCount(self.read_u32()?),
-            13 => Section::Tag(self.parse_tag_section()?),
+            0 => ModuleSection::Custom(self.parse_custom_section(size)?),
+            1 => ModuleSection::Type(self.parse_type_section()?),
+            2 => ModuleSection::Import(self.parse_import_section()?),
+            3 => ModuleSection::Function(self.parse_function_section()?),
+            4 => ModuleSection::Table(self.parse_table_section()?),
+            5 => ModuleSection::Memory(self.parse_memory_section()?),
+            6 => ModuleSection::Global(self.parse_global_section()?),
+            7 => ModuleSection::Export(self.parse_export_section()?),
+            8 => ModuleSection::Start(self.read_u32()?),
+            9 => ModuleSection::Element(self.parse_element_section()?),
+            10 => ModuleSection::Code(self.parse_code_section()?),
+            11 => ModuleSection::Data(self.parse_data_section()?),
+            12 => ModuleSection::DataCount(self.read_u32()?),
+            13 => ModuleSection::Tag(self.parse_tag_section()?),
             foreign_id => parse_err!("Encountered foreign section id: {}", foreign_id),
         };
 

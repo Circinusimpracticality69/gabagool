@@ -1,4 +1,4 @@
-#![cfg(not(feature = "spec-tests"))]
+#![cfg(not(any(feature = "core-tests", feature = "component-tests")))]
 
 use gabagool::{Module, RawValue, Store};
 

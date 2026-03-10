@@ -1,3 +1,4 @@
 target/
 /tests/spec/
+/tests/components/
 game-of-life*.gabagool

@@ -1,3 +1,5 @@
+#![cfg(feature = "core-tests")]
+
 use gabagool::{
     parser::Parser, AddrType, CompositeType, ExportInstance, ExternalValue, FunctionInstance,
     GlobalInstance, GlobalType, ImportDescription, Instance, Limit, MemoryInstance, MemoryType,

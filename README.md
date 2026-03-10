@@ -19,12 +19,17 @@ This project aims to build a fully spec-compliant, performant interpreter whose 
 `gabagool` is tested against the [WebAssembly spec test suite](https://github.com/WebAssembly/spec/tree/main/test/core). **1,960 tests pass out of 2,049 (96%).** `gabagool` passes on arithmetic, control flow, memory, tables, globals, function references, imports/exports, and exceptions. Remaining tests involve supporting SIMD and garbage collection.
 
 ```sh
-# run the test suite
+# run the core test suite
 uv run download-spec-tests.py
-cargo t --features spec-tests
+cargo t --features core-tests
+
+# run the component test suite
+# you need wasm-tools installed!
+cd tests/components && bash fetch_components.sh
+cargo t --features component-tests
 
 # run an example wasm program
-cargo r -- stair_climb.wasm stair_climb 20
+cargo r -- ./programs/stair_climb.wasm stair_climb 20
 ```
 
 `gabagool` is not optimized and no serious profiling/benchmarking has been done. That said, the goal is to make it as performant as a pure interpreter can be. The most interesting direction is a translation phase that lowers WASM instructions into a compact intermediate representation, designed for efficient dispatch and serialization.

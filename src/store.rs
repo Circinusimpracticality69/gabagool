@@ -751,7 +751,6 @@ impl Store {
 
         // step 24: allocate_module needs ownership, so clone declaration data
         let parsed_clone = crate::binary_grammar::ParsedModule {
-            version: 1,
             types: module.code.types.clone(),
             functions: module.functions.clone(),
             tables: module.tables.clone(),

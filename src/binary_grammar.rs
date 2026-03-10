@@ -1,8 +1,338 @@
-pub const MAGIC_NUMBER: [u8; 4] = *b"\0asm";
+use crate::{parse_err, Error, Result};
 
 #[derive(Debug, Clone)]
+pub enum Parsed {
+    Module(ParsedModule),
+    Component(ParsedComponent),
+}
+
+#[derive(Debug, Clone)]
+pub struct ParsedComponent {
+    pub modules: Vec<ParsedModule>,
+    pub components: Vec<Self>,
+    pub core_types: Vec<CoreType>,
+    pub component_types: Vec<ComponentTypeDef>,
+    pub core_instances: Vec<CoreInstance>,
+    pub aliases: Vec<Alias>,
+    pub instances: Vec<ComponentInstance>,
+    pub imports: Vec<ComponentImport>,
+    pub exports: Vec<ComponentExport>,
+    pub canonicals: Vec<CanonicalDef>,
+    pub start: Option<ComponentStart>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ComponentStart {
+    pub func_idx: u32,
+    pub args: Vec<u32>,
+    pub results: u32,
+}
+
+#[derive(Debug, Clone)]
+pub enum CoreType {
+    SubType(SubType),
+    Module(CoreModuleType),
+}
+
+#[derive(Debug, Clone)]
+pub struct CoreModuleType {
+    pub declarations: Vec<CoreModuleDecl>,
+}
+
+#[derive(Debug, Clone)]
+pub enum CoreModuleDecl {
+    Import(ImportDeclaration),
+    Type(SubType),
+    Alias(Alias),
+    Export(CoreExportDecl),
+}
+
+#[derive(Debug, Clone)]
+pub struct CoreExportDecl {
+    pub name: String,
+    pub description: ImportDescription,
+}
+
+#[derive(Debug, Clone)]
+pub enum CanonicalDef {
+    Lift {
+        core_func_idx: u32,
+        opts: CanonOpts,
+        type_idx: u32,
+    },
+    Lower {
+        func_idx: u32,
+        opts: CanonOpts,
+    },
+    ResourceNew(u32),
+    ResourceDrop(u32),
+    ResourceRep(u32),
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct CanonOpts {
+    pub string_encoding: StringEncoding,
+    pub memory: Option<u32>,
+    pub realloc: Option<u32>,
+    pub post_return: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub enum StringEncoding {
+    #[default]
+    Utf8,
+    Utf16,
+    Latin1Utf16,
+}
+
+#[derive(Debug, Clone)]
+pub enum CoreInstance {
+    Instantiate {
+        module_idx: u32,
+        args: Vec<CoreInstantiateArg>,
+    },
+    FromExports(Vec<CoreInlineExport>),
+}
+
+#[derive(Debug, Clone)]
+pub struct CoreInstantiateArg {
+    pub name: String,
+    pub instance_idx: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct CoreInlineExport {
+    pub name: String,
+    pub sort: CoreSort,
+    pub idx: u32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum CoreSort {
+    Func,
+    Table,
+    Memory,
+    Global,
+    Tag,
+    Type,
+    Module,
+    Instance,
+}
+
+impl TryFrom<u8> for CoreSort {
+    type Error = Error;
+
+    fn try_from(value: u8) -> Result<Self> {
+        let out = match value {
+            0x00 => Self::Func,
+            0x01 => Self::Table,
+            0x02 => Self::Memory,
+            0x03 => Self::Global,
+            0x04 => Self::Tag,
+            0x10 => Self::Type,
+            0x11 => Self::Module,
+            0x12 => Self::Instance,
+            b => parse_err!("unknown core sort: {b:#x}"),
+        };
+
+        Ok(out)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ComponentSort {
+    Core(CoreSort),
+    Func,
+    Value,
+    Type,
+    Component,
+    Instance,
+}
+
+#[derive(Debug, Clone)]
+pub enum Alias {
+    CoreExport {
+        sort: ComponentSort,
+        instance_idx: u32,
+        name: String,
+    },
+    Export {
+        sort: ComponentSort,
+        instance_idx: u32,
+        name: String,
+    },
+    Outer {
+        sort: ComponentSort,
+        count: u32,
+        idx: u32,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum ComponentInstance {
+    Instantiate {
+        component_idx: u32,
+        args: Vec<ComponentInstantiateArg>,
+    },
+    FromExports(Vec<ComponentInlineExport>),
+}
+
+#[derive(Debug, Clone)]
+pub struct ComponentInstantiateArg {
+    pub name: String,
+    pub sort: ComponentSort,
+    pub idx: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct ComponentInlineExport {
+    pub name: String,
+    pub sort: ComponentSort,
+    pub idx: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct ComponentImport {
+    pub name: String,
+    pub desc: ExternDesc,
+}
+
+#[derive(Debug, Clone)]
+pub enum ExternDesc {
+    CoreModule(u32),
+    Func(u32),
+    Type(TypeBound),
+    Component(u32),
+    Instance(u32),
+}
+
+#[derive(Debug, Clone)]
+pub struct ComponentExport {
+    pub name: String,
+    pub sort: ComponentSort,
+    pub idx: u32,
+    pub desc: Option<ExternDesc>,
+}
+
+#[derive(Debug, Clone)]
+pub enum TypeBound {
+    Eq(u32),
+    SubResource,
+}
+
+#[derive(Debug, Clone)]
+pub enum ComponentTypeDef {
+    Defined(ComponentDefinedType),
+    Func(ComponentFuncType),
+    Component(Vec<ComponentTypeDecl>),
+    Instance(Vec<InstanceTypeDecl>),
+    Resource { dtor: Option<u32> },
+}
+
+#[derive(Debug, Clone)]
+pub struct ComponentFuncType {
+    pub params: Vec<(String, ComponentValType)>,
+    pub results: ComponentFuncResult,
+}
+
+#[derive(Debug, Clone)]
+pub enum ComponentFuncResult {
+    Unnamed(ComponentValType),
+    Named(Vec<(String, ComponentValType)>),
+}
+
+#[derive(Debug, Clone)]
+pub enum ComponentValType {
+    Type(u32),
+    Primitive(PrimitiveValType),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum PrimitiveValType {
+    Bool,
+    S8,
+    U8,
+    S16,
+    U16,
+    S32,
+    U32,
+    S64,
+    U64,
+    F32,
+    F64,
+    Char,
+    String,
+}
+
+impl PrimitiveValType {
+    pub fn from_byte(b: u8) -> Result<Self> {
+        let out = match b {
+            0x7f => Self::Bool,
+            0x7e => Self::S8,
+            0x7d => Self::U8,
+            0x7c => Self::S16,
+            0x7b => Self::U16,
+            0x7a => Self::S32,
+            0x79 => Self::U32,
+            0x78 => Self::S64,
+            0x77 => Self::U64,
+            0x76 => Self::F32,
+            0x75 => Self::F64,
+            0x74 => Self::Char,
+            0x73 => Self::String,
+            _ => parse_err!("unknown primitive val type: {b:#x}"),
+        };
+        Ok(out)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ComponentDefinedType {
+    Primitive(PrimitiveValType),
+    Record(Vec<(String, ComponentValType)>),
+    Variant(Vec<VariantCase>),
+    List(ComponentValType),
+    Tuple(Vec<ComponentValType>),
+    Flags(Vec<String>),
+    Enum(Vec<String>),
+    Option(ComponentValType),
+    Result {
+        ok: Option<ComponentValType>,
+        err: Option<ComponentValType>,
+    },
+    Own(u32),
+    Borrow(u32),
+}
+
+#[derive(Debug, Clone)]
+pub struct VariantCase {
+    pub name: String,
+    pub ty: Option<ComponentValType>,
+    pub refines: Option<u32>,
+}
+
+#[derive(Debug, Clone)]
+pub enum InstanceTypeDecl {
+    CoreType(CoreType),
+    Type(ComponentTypeDef),
+    Alias(Alias),
+    Export(ComponentExportDecl),
+}
+
+#[derive(Debug, Clone)]
+pub enum ComponentTypeDecl {
+    Instance(InstanceTypeDecl),
+    Import(ComponentImport),
+}
+
+#[derive(Debug, Clone)]
+pub struct ComponentExportDecl {
+    pub name: String,
+    pub desc: ExternDesc,
+}
+
+#[derive(Debug, Default, Clone)]
 pub struct ParsedModule {
-    pub version: u8,
     pub types: Vec<SubType>,
     pub functions: Vec<Function>,
     pub tables: Vec<TableDef>,
@@ -17,28 +347,8 @@ pub struct ParsedModule {
     pub customs: Vec<CustomSection>,
 }
 
-impl ParsedModule {
-    pub const fn new(version: u8) -> Self {
-        Self {
-            version,
-            types: vec![],
-            functions: vec![],
-            tables: vec![],
-            mems: vec![],
-            element_segments: vec![],
-            globals: vec![],
-            data_segments: vec![],
-            start: None,
-            import_declarations: vec![],
-            exports: vec![],
-            tags: vec![],
-            customs: vec![],
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
-pub enum Section {
+pub enum ModuleSection {
     Custom(CustomSection),
     Type(TypeSection),
     Import(ImportSection),

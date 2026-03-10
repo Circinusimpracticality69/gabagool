@@ -1055,7 +1055,7 @@ impl<'a> Compiler<'a> {
         self.ops = out;
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(any(feature = "core-tests", feature = "component-tests"))))]
     fn compile_and_get_ops(types: &[SubType], func: &Function) -> Vec<Op> {
         let mut code = ModuleCode {
             compiled_funcs: Vec::new(),
@@ -3170,7 +3170,7 @@ impl<'a> Compiler<'a> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(any(feature = "core-tests", feature = "component-tests"))))]
 mod tests {
     use super::*;
     use crate::binary_grammar::{

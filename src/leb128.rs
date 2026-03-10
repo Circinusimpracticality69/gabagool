@@ -179,7 +179,7 @@ pub fn read_i64(buf: &[u8]) -> Result<(i64, usize)> {
     parse_err!("Unterminated signed leb128-encoded 64-bit integer.")
 }
 
-#[cfg(all(test, not(feature = "spec-tests")))]
+#[cfg(all(test, not(any(feature = "core-tests", feature = "component-tests"))))]
 mod tests {
     use super::*;
 
