@@ -5,11 +5,11 @@ use crate::error::{Error, Result};
 use crate::{
     ensure, parse_err, Alias, CanonOpts, CanonicalDef, ComponentDefinedType, ComponentExport,
     ComponentExportDecl, ComponentFuncResult, ComponentFuncType, ComponentImport,
-    ComponentInlineExport, ComponentInstance, ComponentInstantiateArg, ComponentSort,
-    ComponentStart, ComponentTypeDecl, ComponentTypeDef, ComponentValType, CoreExportDecl,
-    CoreInlineExport, CoreInstance, CoreInstantiateArg, CoreModuleDecl, CoreModuleType, CoreType,
-    ExternDesc, InstanceTypeDecl, Parsed, ParsedComponent, PrimitiveValType, StringEncoding,
-    TypeBound, VariantCase,
+    ComponentInlineExport, ComponentInstance, ComponentInstantiateArg, ComponentSection,
+    ComponentSort, ComponentStart, ComponentTypeDecl, ComponentTypeDef, ComponentValType,
+    CoreExportDecl, CoreInlineExport, CoreInstance, CoreInstantiateArg, CoreModuleDecl,
+    CoreModuleType, CoreType, ExternDesc, InstanceTypeDecl, Parsed, ParsedComponent,
+    PrimitiveValType, StringEncoding, TypeBound, VariantCase,
 };
 
 use crate::binary_grammar::{
@@ -54,17 +54,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_component(&mut self) -> Result<ParsedComponent> {
-        let mut modules = Vec::new();
-        let mut components = Vec::new();
-        let mut core_types = Vec::new();
-        let mut component_types = Vec::new();
-        let mut core_instances = Vec::new();
-        let mut aliases = Vec::new();
-        let mut instances = Vec::new();
-        let mut imports = Vec::new();
-        let mut canonicals = Vec::new();
-        let mut start = None;
-        let mut exports = Vec::new();
+        let mut sections = Vec::new();
 
         while self.cursor < self.buffer.len() {
             let id = self.read_u8()?;
@@ -81,14 +71,18 @@ impl<'a> Parser<'a> {
                     let Parsed::Module(module) = self.parse()? else {
                         parse_err!("expected core module in section 1");
                     };
-                    modules.push(module);
+                    sections.push(ComponentSection::CoreModule(module));
                     self.buffer = full_buffer;
                 }
                 2 => {
-                    core_instances.extend(self.parse_vec(Self::parse_core_instance)?);
+                    sections.push(ComponentSection::CoreInstance(
+                        self.parse_vec(Self::parse_core_instance)?,
+                    ));
                 }
                 3 => {
-                    core_types.extend(self.parse_vec(Self::parse_core_type)?);
+                    sections.push(ComponentSection::CoreType(
+                        self.parse_vec(Self::parse_core_type)?,
+                    ));
                 }
                 4 => {
                     let full_buffer = self.buffer;
@@ -96,38 +90,41 @@ impl<'a> Parser<'a> {
                     let Parsed::Component(component) = self.parse()? else {
                         parse_err!("expected component in section 4");
                     };
-                    components.push(component);
+                    sections.push(ComponentSection::Component(component));
                     self.buffer = full_buffer;
                 }
                 5 => {
-                    instances.extend(self.parse_vec(Self::parse_component_instance)?);
+                    sections.push(ComponentSection::Instance(
+                        self.parse_vec(Self::parse_component_instance)?,
+                    ));
                 }
                 6 => {
-                    aliases.extend(self.parse_vec(Self::parse_alias)?);
+                    sections.push(ComponentSection::Alias(self.parse_vec(Self::parse_alias)?));
                 }
                 7 => match self.parse_vec(Self::parse_component_type_def) {
-                    Ok(defs) => component_types.extend(defs),
+                    Ok(defs) => sections.push(ComponentSection::ComponentType(defs)),
                     Err(_) => self.cursor = expected_section_end,
                 },
                 8 => match self.parse_vec(Self::parse_canonical_def) {
-                    Ok(defs) => canonicals.extend(defs),
+                    Ok(defs) => sections.push(ComponentSection::Canonical(defs)),
                     Err(_) => self.cursor = expected_section_end,
                 },
                 9 => {
-                    let func_idx = self.read_u32()?;
-                    let args = self.parse_vec(Self::read_u32)?;
-                    let results = self.read_u32()?;
-                    start = Some(ComponentStart {
-                        func_idx,
-                        args,
-                        results,
-                    });
+                    sections.push(ComponentSection::Start(ComponentStart {
+                        func_idx: self.read_u32()?,
+                        args: self.parse_vec(Self::read_u32)?,
+                        results: self.read_u32()?,
+                    }));
                 }
                 10 => {
-                    imports.extend(self.parse_vec(Self::parse_component_import)?);
+                    sections.push(ComponentSection::Import(
+                        self.parse_vec(Self::parse_component_import)?,
+                    ));
                 }
                 11 => {
-                    exports.extend(self.parse_vec(Self::parse_component_export)?);
+                    sections.push(ComponentSection::Export(
+                        self.parse_vec(Self::parse_component_export)?,
+                    ));
                 }
                 12 => {
                     self.cursor = expected_section_end;
@@ -144,19 +141,7 @@ impl<'a> Parser<'a> {
             );
         }
 
-        Ok(ParsedComponent {
-            modules,
-            components,
-            core_types,
-            component_types,
-            core_instances,
-            aliases,
-            instances,
-            imports,
-            exports,
-            canonicals,
-            start,
-        })
+        Ok(ParsedComponent { sections })
     }
 
     fn parse_core_instance(&mut self) -> Result<CoreInstance> {

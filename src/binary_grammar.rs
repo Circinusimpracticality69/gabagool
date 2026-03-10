@@ -1,6 +1,8 @@
 use crate::{parse_err, Error, Result};
 use std::result::Result as StdResult;
 
+// todo: should we box ParsedModule?
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum Parsed {
     Module(ParsedModule),
@@ -9,17 +11,23 @@ pub enum Parsed {
 
 #[derive(Debug, Clone)]
 pub struct ParsedComponent {
-    pub modules: Vec<ParsedModule>,
-    pub components: Vec<Self>,
-    pub core_types: Vec<CoreType>,
-    pub component_types: Vec<ComponentTypeDef>,
-    pub core_instances: Vec<CoreInstance>,
-    pub aliases: Vec<Alias>,
-    pub instances: Vec<ComponentInstance>,
-    pub imports: Vec<ComponentImport>,
-    pub exports: Vec<ComponentExport>,
-    pub canonicals: Vec<CanonicalDef>,
-    pub start: Option<ComponentStart>,
+    pub sections: Vec<ComponentSection>,
+}
+
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone)]
+pub enum ComponentSection {
+    CoreModule(ParsedModule),
+    CoreInstance(Vec<CoreInstance>),
+    CoreType(Vec<CoreType>),
+    Component(ParsedComponent),
+    Instance(Vec<ComponentInstance>),
+    Alias(Vec<Alias>),
+    ComponentType(Vec<ComponentTypeDef>),
+    Canonical(Vec<CanonicalDef>),
+    Start(ComponentStart),
+    Import(Vec<ComponentImport>),
+    Export(Vec<ComponentExport>),
 }
 
 #[derive(Debug, Clone)]
