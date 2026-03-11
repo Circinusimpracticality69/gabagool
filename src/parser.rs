@@ -336,6 +336,115 @@ impl<'a> Parser<'a> {
             2 => CanonicalDef::ResourceNew(self.read_u32()?),
             3 => CanonicalDef::ResourceDrop(self.read_u32()?),
             4 => CanonicalDef::ResourceRep(self.read_u32()?),
+            5 => CanonicalDef::TaskCancel,
+            6 => CanonicalDef::SubtaskCancel {
+                async_: self.read_u8()? != 0,
+            },
+            8 => CanonicalDef::BackpressureSet,
+            9 => CanonicalDef::TaskReturn {
+                result_type: self.parse_result_list()?,
+                opts: self.parse_canon_opts()?,
+            },
+            10 => {
+                let _valtype = self.read_u8()?;
+                CanonicalDef::ContextGet {
+                    slot: self.read_u32()?,
+                }
+            }
+            11 => {
+                let _valtype = self.read_u8()?;
+                CanonicalDef::ContextSet {
+                    slot: self.read_u32()?,
+                }
+            }
+            12 => CanonicalDef::ThreadYield {
+                cancel: self.read_u8()? != 0,
+            },
+            13 => CanonicalDef::SubtaskDrop,
+            14 => CanonicalDef::StreamNew(self.read_u32()?),
+            15 => CanonicalDef::StreamRead {
+                type_idx: self.read_u32()?,
+                opts: self.parse_canon_opts()?,
+            },
+            16 => CanonicalDef::StreamWrite {
+                type_idx: self.read_u32()?,
+                opts: self.parse_canon_opts()?,
+            },
+            17 => CanonicalDef::StreamCancelRead {
+                type_idx: self.read_u32()?,
+                async_: self.read_u8()? != 0,
+            },
+            18 => CanonicalDef::StreamCancelWrite {
+                type_idx: self.read_u32()?,
+                async_: self.read_u8()? != 0,
+            },
+            19 => CanonicalDef::StreamDropReadable(self.read_u32()?),
+            20 => CanonicalDef::StreamDropWritable(self.read_u32()?),
+            21 => CanonicalDef::FutureNew(self.read_u32()?),
+            22 => CanonicalDef::FutureRead {
+                type_idx: self.read_u32()?,
+                opts: self.parse_canon_opts()?,
+            },
+            23 => CanonicalDef::FutureWrite {
+                type_idx: self.read_u32()?,
+                opts: self.parse_canon_opts()?,
+            },
+            24 => CanonicalDef::FutureCancelRead {
+                type_idx: self.read_u32()?,
+                async_: self.read_u8()? != 0,
+            },
+            25 => CanonicalDef::FutureCancelWrite {
+                type_idx: self.read_u32()?,
+                async_: self.read_u8()? != 0,
+            },
+            26 => CanonicalDef::FutureDropReadable(self.read_u32()?),
+            27 => CanonicalDef::FutureDropWritable(self.read_u32()?),
+            28 => CanonicalDef::ErrorContextNew(self.parse_canon_opts()?),
+            29 => CanonicalDef::ErrorContextDebugMessage(self.parse_canon_opts()?),
+            30 => CanonicalDef::ErrorContextDrop,
+            31 => CanonicalDef::WaitableSetNew,
+            32 => CanonicalDef::WaitableSetWait {
+                cancel: self.read_u8()? != 0,
+                memory: self.read_u32()?,
+            },
+            33 => CanonicalDef::WaitableSetPoll {
+                cancel: self.read_u8()? != 0,
+                memory: self.read_u32()?,
+            },
+            34 => CanonicalDef::WaitableSetDrop,
+            35 => CanonicalDef::WaitableJoin,
+            36 => CanonicalDef::BackpressureInc,
+            37 => CanonicalDef::BackpressureDec,
+            38 => CanonicalDef::ThreadIndex,
+            39 => CanonicalDef::ThreadNewIndirect {
+                type_idx: self.read_u32()?,
+                table: self.read_u32()?,
+            },
+            40 => CanonicalDef::ThreadSuspendToSuspended {
+                cancel: self.read_u8()? != 0,
+            },
+            41 => CanonicalDef::ThreadSuspend {
+                cancel: self.read_u8()? != 0,
+            },
+            42 => CanonicalDef::ThreadUnsuspend,
+            43 => CanonicalDef::ThreadYieldToSuspended {
+                cancel: self.read_u8()? != 0,
+            },
+            44 => CanonicalDef::ThreadSuspendTo {
+                cancel: self.read_u8()? != 0,
+            },
+            64 => CanonicalDef::ThreadSpawnRef {
+                shared: self.read_u8()? != 0,
+                type_idx: self.read_u32()?,
+            },
+            65 => CanonicalDef::ThreadSpawnIndirect {
+                shared: self.read_u8()? != 0,
+                type_idx: self.read_u32()?,
+                table: self.read_u32()?,
+            },
+            66 => CanonicalDef::ThreadAvailableParallelism {
+                shared: self.read_u8()? != 0,
+            },
             b => parse_err!("unknown canonical opcode: {b:#x}"),
         };
 
@@ -353,10 +462,25 @@ impl<'a> Parser<'a> {
                 3 => opts.memory = Some(self.read_u32()?),
                 4 => opts.realloc = Some(self.read_u32()?),
                 5 => opts.post_return = Some(self.read_u32()?),
+                6 => opts.async_ = true,
+                7 => opts.callback = Some(self.read_u32()?),
                 b => parse_err!("unknown canon opt: {b:#x}"),
             }
         }
         Ok(opts)
+    }
+
+    fn parse_result_list(&mut self) -> Result<Option<ComponentValType>> {
+        let out = match self.read_u8()? {
+            0x00 => Some(self.parse_component_val_type()?),
+            0x01 => {
+                let _ = self.read_u8()?;
+                None
+            }
+            b => parse_err!("unknown resultlist discriminant: {b:#x}"),
+        };
+
+        Ok(out)
     }
 
     fn parse_core_type(&mut self) -> Result<CoreType> {
@@ -979,41 +1103,36 @@ impl<'a> Parser<'a> {
 
     fn parse_limit(&mut self) -> Result<(AddrType, Limit)> {
         let flag = self.read_u8()?;
+        let has_max = flag & 0x01 != 0;
+        let is_64 = flag & 0x04 != 0;
+        let has_page_size = flag & 0x08 != 0;
 
-        match flag {
-            0x00 => Ok((
-                AddrType::I32,
-                Limit {
-                    min: self.read_u32()? as u64,
-                    max: u64::MAX,
-                },
-            )),
-            0x01 => Ok((
-                AddrType::I32,
-                Limit {
-                    min: self.read_u32()? as u64,
-                    max: self.read_u32()? as u64,
-                },
-            )),
-            0x04 => Ok((
-                AddrType::I64,
-                Limit {
-                    min: self.read_u64()?,
-                    max: u64::MAX,
-                },
-            )),
-            0x05 => Ok((
-                AddrType::I64,
-                Limit {
-                    min: self.read_u64()?,
-                    max: self.read_u64()?,
-                },
-            )),
-            _ => parse_err!(
-                "Expected limit flag 0x00/0x01/0x04/0x05. Got: 0x{:02X}",
-                flag
-            ),
+        if flag & !0x0D != 0 {
+            parse_err!("Expected valid limit flag. Got: 0x{:02X}", flag);
         }
+
+        let addr_type = if is_64 { AddrType::I64 } else { AddrType::I32 };
+        let limit = if is_64 {
+            Limit {
+                min: self.read_u64()?,
+                max: if has_max { self.read_u64()? } else { u64::MAX },
+            }
+        } else {
+            Limit {
+                min: self.read_u32()? as u64,
+                max: if has_max {
+                    self.read_u32()? as u64
+                } else {
+                    u64::MAX
+                },
+            }
+        };
+
+        if has_page_size {
+            let _page_size = self.read_u32()?;
+        }
+
+        Ok((addr_type, limit))
     }
 
     fn parse_memory_type(&mut self) -> Result<MemoryType> {

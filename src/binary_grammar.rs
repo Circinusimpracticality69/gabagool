@@ -76,6 +76,109 @@ pub enum CanonicalDef {
     ResourceNew(u32),
     ResourceDrop(u32),
     ResourceRep(u32),
+    TaskCancel,
+    SubtaskCancel {
+        async_: bool,
+    },
+    BackpressureSet,
+    TaskReturn {
+        result_type: Option<ComponentValType>,
+        opts: CanonOpts,
+    },
+    ContextGet {
+        slot: u32,
+    },
+    ContextSet {
+        slot: u32,
+    },
+    SubtaskDrop,
+    BackpressureInc,
+    BackpressureDec,
+    StreamNew(u32),
+    StreamRead {
+        type_idx: u32,
+        opts: CanonOpts,
+    },
+    StreamWrite {
+        type_idx: u32,
+        opts: CanonOpts,
+    },
+    StreamCancelRead {
+        type_idx: u32,
+        async_: bool,
+    },
+    StreamCancelWrite {
+        type_idx: u32,
+        async_: bool,
+    },
+    StreamDropReadable(u32),
+    StreamDropWritable(u32),
+    FutureNew(u32),
+    FutureRead {
+        type_idx: u32,
+        opts: CanonOpts,
+    },
+    FutureWrite {
+        type_idx: u32,
+        opts: CanonOpts,
+    },
+    FutureCancelRead {
+        type_idx: u32,
+        async_: bool,
+    },
+    FutureCancelWrite {
+        type_idx: u32,
+        async_: bool,
+    },
+    FutureDropReadable(u32),
+    FutureDropWritable(u32),
+    ErrorContextNew(CanonOpts),
+    ErrorContextDebugMessage(CanonOpts),
+    ErrorContextDrop,
+    WaitableSetNew,
+    WaitableSetWait {
+        cancel: bool,
+        memory: u32,
+    },
+    WaitableSetPoll {
+        cancel: bool,
+        memory: u32,
+    },
+    WaitableSetDrop,
+    WaitableJoin,
+    ThreadYield {
+        cancel: bool,
+    },
+    ThreadIndex,
+    ThreadNewIndirect {
+        type_idx: u32,
+        table: u32,
+    },
+    ThreadSuspendToSuspended {
+        cancel: bool,
+    },
+    ThreadSuspend {
+        cancel: bool,
+    },
+    ThreadUnsuspend,
+    ThreadYieldToSuspended {
+        cancel: bool,
+    },
+    ThreadSuspendTo {
+        cancel: bool,
+    },
+    ThreadSpawnRef {
+        shared: bool,
+        type_idx: u32,
+    },
+    ThreadSpawnIndirect {
+        shared: bool,
+        type_idx: u32,
+        table: u32,
+    },
+    ThreadAvailableParallelism {
+        shared: bool,
+    },
 }
 
 #[derive(Debug, Clone, Default)]
@@ -84,6 +187,8 @@ pub struct CanonOpts {
     pub memory: Option<u32>,
     pub realloc: Option<u32>,
     pub post_return: Option<u32>,
+    pub async_: bool,
+    pub callback: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -670,8 +775,6 @@ pub struct Tag {
 pub struct TagSection {
     pub tags: Vec<Tag>,
 }
-
-// Instructions
 
 #[derive(Debug, Clone)]
 pub enum CatchClause {
