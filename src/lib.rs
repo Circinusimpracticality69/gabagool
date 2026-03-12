@@ -4,6 +4,7 @@ mod binary_grammar;
 pub mod compiler;
 mod error;
 mod execution_grammar;
+pub mod exponential_decay;
 pub mod ir;
 pub mod leb128;
 mod module;
