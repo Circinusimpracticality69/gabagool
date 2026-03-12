@@ -40,6 +40,8 @@ https://webassembly.github.io/spec/core/<br>
 https://github.com/bytecodealliance/wasmtime/issues/3017<br>
 https://github.com/bytecodealliance/wasmtime/issues/4002<br>
 
+## Wasm Component Model<br>
+
 https://www.infoq.com/podcasts/web-assembly-component-model/<br>
 https://blog.sunfishcode.online/what-is-a-wasm-component/<br>
 https://www.fermyon.com/blog/webassembly-component-model<br>
