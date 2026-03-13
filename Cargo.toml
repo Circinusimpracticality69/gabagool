@@ -1,3 +1,6 @@
+[workspace]
+members = [".", "gabagool-debug-adapter"]
+
 [package]
 name = "gabagool"
 version = "0.1.0"

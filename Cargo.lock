@@ -81,6 +81,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "gabagool-debug-adapter"
+version = "0.1.0"
+dependencies = [
+ "gabagool",
+ "serde_json",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
