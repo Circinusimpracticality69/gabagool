@@ -1,6 +1,6 @@
 # gabagool
 
-A WebAssembly interpreter written from scratch.
+A WebAssembly interpreter written from scratch. It also contains a time travel debugger.
 
 This project aims to build a fully spec-compliant, performant interpreter whose entire execution state can be serialized, suspended, and restored.
 <br>
@@ -48,3 +48,7 @@ https://www.fermyon.com/blog/webassembly-component-model<br>
 https://github.com/WebAssembly/component-model/blob/main/design/mvp/Explainer.md<br>
 https://github.com/WebAssembly/component-model/blob/main/design/mvp/Binary.md<br>
 https://github.com/WebAssembly/component-model/blob/main/design/mvp/CanonicalABI.md<br>
+
+## Time travel debugging <br>
+
+https://awelonblue.wordpress.com/2013/01/24/exponential-decay-of-history-improved/<br>
