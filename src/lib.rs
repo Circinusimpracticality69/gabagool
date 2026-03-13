@@ -2,9 +2,10 @@
 
 mod binary_grammar;
 pub mod compiler;
+pub mod debugger;
 mod error;
 mod execution_grammar;
-pub mod exponential_decay;
+mod exponential_decay;
 pub mod ir;
 pub mod leb128;
 mod module;

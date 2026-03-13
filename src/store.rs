@@ -249,7 +249,7 @@ pub struct Store {
 
     // execution state
     stack: ValueStack,
-    call_stack: Vec<CallFrame>,
+    pub(crate) call_stack: Vec<CallFrame>,
     catch_stack: Vec<CatchFrame>,
     exceptions: Vec<Exception>,
     fuel: Option<u64>,

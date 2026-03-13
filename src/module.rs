@@ -10,6 +10,7 @@ use crate::parser::Parser;
 use crate::{parse_err, Parsed};
 
 /// A parsed and compiled WASM module ready to be instantiated
+#[derive(Debug)]
 pub struct Module {
     pub(crate) code: Arc<ModuleCode>,
 
