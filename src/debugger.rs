@@ -6,7 +6,7 @@ use crate::{
 };
 
 #[derive(Hash, Eq, PartialEq, Clone, Debug)]
-struct Breakpoint {
+pub struct Breakpoint {
     module_idx: u16,
     compiled_func_idx: u32,
     pc: usize,
@@ -101,6 +101,18 @@ impl Debugger {
         self.completed.as_deref()
     }
 
+    pub fn into_store(self) -> Store {
+        self.store
+    }
+
+    pub fn set_breakpoint(&mut self, breakpoint: Breakpoint) -> bool {
+        self.breakpoints.insert(breakpoint)
+    }
+
+    pub fn remove_breakpoint(&mut self, breakpoint: &Breakpoint) -> bool {
+        self.breakpoints.remove(breakpoint)
+    }
+
     fn at_breakpoint(&self) -> bool {
         let Some(frame) = self.store.call_stack.last() else {
             return false;
@@ -177,6 +189,24 @@ impl Debugger {
         }
 
         Ok(StepResult::Stepped)
+    }
+
+    pub fn continue_forward(&mut self) -> Result<StepResult> {
+        loop {
+            let out = self.step_forward();
+            if !matches!(out, Ok(StepResult::Stepped)) {
+                return out;
+            }
+        }
+    }
+
+    pub fn continue_backward(&mut self) -> Result<StepResult> {
+        loop {
+            let out = self.step_back();
+            if !matches!(out, Ok(StepResult::Stepped)) {
+                return out;
+            }
+        }
     }
 }
 
@@ -358,5 +388,95 @@ mod tests {
         }
         assert_eq!(dbg.instruction_count(), 100);
         assert_eq!(dbg.store.memories[0].data, mem_at_100);
+    }
+
+    #[test]
+    fn test_continue_forward_completes() {
+        let mut dbg = setup_debugger(
+            "programs/stair_climb.wasm",
+            "stair_climb",
+            vec![RawValue::from(3_i32)],
+        );
+
+        let result = dbg.continue_forward().unwrap();
+        assert!(matches!(result, StepResult::Completed));
+        assert_eq!(dbg.result().unwrap()[0].as_i32(), 4);
+    }
+
+    #[test]
+    fn test_continue_forward_stops_at_breakpoint() {
+        let mut dbg = setup_debugger(
+            "programs/stair_climb.wasm",
+            "stair_climb",
+            vec![RawValue::from(3_i32)],
+        );
+
+        for _ in 0..5 {
+            dbg.step_forward().unwrap();
+        }
+        let frame = dbg.store.call_stack.last().unwrap();
+        let bp = Breakpoint {
+            module_idx: frame.module_idx,
+            compiled_func_idx: frame.compiled_func_idx,
+            pc: frame.pc,
+        };
+        let bp_ic = dbg.instruction_count();
+
+        for _ in 0..5 {
+            dbg.step_back().unwrap();
+        }
+        assert_eq!(dbg.instruction_count(), 0);
+
+        dbg.set_breakpoint(bp);
+        let result = dbg.continue_forward().unwrap();
+        assert!(matches!(result, StepResult::BreakpointHit));
+        assert_eq!(dbg.instruction_count(), bp_ic);
+    }
+
+    #[test]
+    fn test_continue_backward_stops_at_breakpoint() {
+        let mut dbg = setup_debugger(
+            "programs/stair_climb.wasm",
+            "stair_climb",
+            vec![RawValue::from(3_i32)],
+        );
+
+        for _ in 0..5 {
+            dbg.step_forward().unwrap();
+        }
+        let frame = dbg.store.call_stack.last().unwrap();
+        let bp = Breakpoint {
+            module_idx: frame.module_idx,
+            compiled_func_idx: frame.compiled_func_idx,
+            pc: frame.pc,
+        };
+
+        for _ in 0..20 {
+            dbg.step_forward().unwrap();
+        }
+        let ic_before = dbg.instruction_count();
+
+        dbg.set_breakpoint(bp);
+        let result = dbg.continue_backward().unwrap();
+        assert!(matches!(result, StepResult::BreakpointHit));
+        assert!(dbg.instruction_count() < ic_before);
+        assert!(dbg.instruction_count() > 0);
+    }
+
+    #[test]
+    fn test_continue_backward_reaches_start() {
+        let mut dbg = setup_debugger(
+            "programs/stair_climb.wasm",
+            "stair_climb",
+            vec![RawValue::from(3_i32)],
+        );
+
+        for _ in 0..10 {
+            dbg.step_forward().unwrap();
+        }
+
+        let result = dbg.continue_backward().unwrap();
+        assert!(matches!(result, StepResult::ReachedStart));
+        assert_eq!(dbg.instruction_count(), 0);
     }
 }
