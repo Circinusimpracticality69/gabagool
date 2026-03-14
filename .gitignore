@@ -5,3 +5,6 @@ gabagool-debug-adapter/bin/
 game-of-life*.gabagool
 programs/*.wat
 !programs/demo.wat
+!programs/fibonacci.wat
+!programs/add.wat
+!programs/stair_climb.wat
