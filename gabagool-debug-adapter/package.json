@@ -24,8 +24,7 @@
               },
               "function": {
                 "type": "string",
-                "description": "Function to debug",
-                "default": "_start"
+                "description": "Function to debug (auto-detected if omitted)"
               },
               "args": {
                 "type": "array",
@@ -41,7 +40,6 @@
             "request": "launch",
             "name": "Debug WASM",
             "program": "${workspaceFolder}/programs/fibonacci.wasm",
-            "function": "fib",
             "args": [10]
           }
         ]

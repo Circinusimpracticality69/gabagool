@@ -88,16 +88,23 @@ impl DAPServer {
     fn handle_launch(&mut self, request_seq: i64, msg: &Value) -> Result<()> {
         let args = &msg["arguments"];
         let program = args["program"].as_str().unwrap_or("");
-        let function = args["function"].as_str().unwrap_or("main");
+        let function_arg = args["function"].as_str().unwrap_or("");
 
-        let call_args = args["args"]
-            .as_array()
-            .map(|arr| {
+        let call_args = args["args"].as_array().map_or_else(
+            || {
+                args["args"].as_str().map_or_else(Vec::new, |s| {
+                    s.split(',')
+                        .filter_map(|s| s.trim().parse::<i32>().ok())
+                        .map(RawValue::from)
+                        .collect()
+                })
+            },
+            |arr| {
                 arr.iter()
                     .filter_map(|v| v.as_i64().map(|n| RawValue::from(n as i32)))
                     .collect()
-            })
-            .unwrap_or_default();
+            },
+        );
 
         let source_path = args["source"]
             .as_str()
@@ -105,9 +112,17 @@ impl DAPServer {
             .unwrap_or_else(|| program.replace(".wasm", ".wat"));
 
         let wat_source = fs::read_to_string(&source_path)?;
-        self.source_map = Some(WatSourceMap::from_wat(&source_path, &wat_source));
+        let sm = WatSourceMap::from_wat(&source_path, &wat_source);
 
-        match Self::create_debugger(program, function, call_args) {
+        let function = if function_arg.is_empty() {
+            sm.first_user_func_name().unwrap_or("main").to_string()
+        } else {
+            function_arg.to_string()
+        };
+
+        self.source_map = Some(sm);
+
+        match Self::create_debugger(program, &function, call_args) {
             Ok((debugger, num_imported_funcs)) => {
                 self.debugger = Some(debugger);
                 self.num_imported_funcs = num_imported_funcs;

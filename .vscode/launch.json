@@ -4,10 +4,66 @@
         {
             "type": "gabagool",
             "request": "launch",
-            "name": "Debug WASM",
+            "name": "fibonacci(10)",
             "program": "${workspaceFolder}/programs/fibonacci.wasm",
-            "function": "fib",
-            "args": [10]
+            "args": "10"
+        },
+        {
+            "type": "gabagool",
+            "request": "launch",
+            "name": "stair_climb(5)",
+            "program": "${workspaceFolder}/programs/stair_climb.wasm",
+            "args": "5"
+        },
+        {
+            "type": "gabagool",
+            "request": "launch",
+            "name": "ackermann(3, 2)",
+            "program": "${workspaceFolder}/programs/ackermann.wasm",
+            "args": "3,2"
+        },
+        {
+            "type": "gabagool",
+            "request": "launch",
+            "name": "add(3, 2)",
+            "program": "${workspaceFolder}/programs/add.wasm",
+            "args": "3,2"
+        },
+        {
+            "type": "gabagool",
+            "request": "launch",
+            "name": "sieve",
+            "program": "${workspaceFolder}/programs/sieve.wasm"
+        },
+        {
+            "type": "gabagool",
+            "request": "launch",
+            "name": "sort",
+            "program": "${workspaceFolder}/programs/sort.wasm"
+        },
+        {
+            "type": "gabagool",
+            "request": "launch",
+            "name": "binary_search",
+            "program": "${workspaceFolder}/programs/binary_search.wasm"
+        },
+        {
+            "type": "gabagool",
+            "request": "launch",
+            "name": "linked_list",
+            "program": "${workspaceFolder}/programs/linked_list.wasm"
+        },
+        {
+            "type": "gabagool",
+            "request": "launch",
+            "name": "matrix",
+            "program": "${workspaceFolder}/programs/matrix.wasm"
+        },
+        {
+            "type": "gabagool",
+            "request": "launch",
+            "name": "mandelbrot",
+            "program": "${workspaceFolder}/programs/mandelbrot.wasm"
         }
     ]
 }

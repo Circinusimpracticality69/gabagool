@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use wast::core::{FuncKind, ModuleField, ModuleKind};
+use wast::core::{ExportKind, FuncKind, ModuleField, ModuleKind};
 use wast::parser::{self, ParseBuffer};
 use wast::Wat;
 
@@ -12,6 +12,7 @@ pub struct WatSourceMap {
     line_to_instruction: HashMap<usize, (usize, u32)>,
     func_names: Vec<Option<String>>,
     local_names: Vec<Vec<String>>,
+    func_exports: Vec<String>,
     pub path: String,
 }
 
@@ -22,6 +23,7 @@ impl WatSourceMap {
             line_to_instruction: HashMap::new(),
             func_names: Vec::new(),
             local_names: Vec::new(),
+            func_exports: Vec::new(),
             path: path.to_string(),
         };
 
@@ -45,6 +47,14 @@ impl WatSourceMap {
             eprintln!("module is binary, not text");
             return source_map;
         };
+
+        for field in fields.iter() {
+            if let ModuleField::Export(export) = field {
+                if matches!(export.kind, ExportKind::Func) {
+                    source_map.func_exports.push(export.name.to_string());
+                }
+            }
+        }
 
         let mut local_func_idx: usize = 0;
 
@@ -118,6 +128,13 @@ impl WatSourceMap {
 
     pub fn line_to_instruction(&self, line: usize) -> Option<(usize, u32)> {
         self.line_to_instruction.get(&line).copied()
+    }
+
+    pub fn first_user_func_name(&self) -> Option<&str> {
+        self.func_exports
+            .iter()
+            .find(|name| !name.starts_with("__"))
+            .map(|s| s.as_str())
     }
 
     pub fn local_name(&self, local_func_idx: usize, local_idx: usize) -> Option<&str> {
