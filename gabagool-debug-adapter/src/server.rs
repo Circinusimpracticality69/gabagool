@@ -3,8 +3,8 @@ use crate::transport::Transport;
 use gabagool::debugger::{Breakpoint, Debugger, StepResult};
 use gabagool::{Module, RawValue, Store, ValueType};
 use serde_json::{json, Value};
-use std::fs;
 use std::io::{Error, Result};
+use std::{fs, iter};
 
 fn err(e: impl std::fmt::Display) -> Error {
     Error::other(e.to_string())
@@ -243,24 +243,27 @@ impl DAPServer {
         let vars = match scope {
             Scope::Stack => {
                 let stack = dbg.value_stack();
-                stack
-                    .iter()
-                    .enumerate()
-                    .rev()
-                    .map(|(i, val)| {
-                        let name = if i == stack.len() - 1 {
-                            format!("[{i}] (top)")
-                        } else {
-                            format!("[{i}]")
-                        };
-                        json!({
-                            "name": name,
-                            "value": format!("{}", val.as_i32()),
-                            "type": "i32",
-                            "variablesReference": 0,
-                        })
+
+                iter::once(json!({
+                    "name": "instruction_count",
+                    "value": format!("{}", dbg.instruction_count()),
+                    "type": "u64",
+                    "variablesReference": 0,
+                }))
+                .chain(stack.iter().enumerate().rev().map(|(i, val)| {
+                    let name = if i == stack.len() - 1 {
+                        format!("[{i}] (top)")
+                    } else {
+                        format!("[{i}]")
+                    };
+                    json!({
+                        "name": name,
+                        "value": format!("{}", val.as_i32()),
+                        "type": "i32",
+                        "variablesReference": 0,
                     })
-                    .collect::<Vec<_>>()
+                }))
+                .collect::<Vec<_>>()
             }
             Scope::Locals => {
                 let frame = &frames[frame_idx];
