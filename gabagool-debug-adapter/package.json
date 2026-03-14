@@ -1,18 +1,51 @@
 {
-    "name": "gabagool-debug",
-    "displayName": "Gabagool WASM Debugger",
-    "version": "0.0.1",
-    "publisher": "friendlymatthew",
-    "engines": { "vscode": "^1.70.0" },
-    "categories": ["Debuggers"],
-    "contributes": {
-        "debuggers": [
-            {
-                "type": "gabagool",
-                "label": "Gabagool WASM",
-                "program": "/Users/matthewkim/Desktop/gabagool/target/debug/gabagool-debug-adapter",
-                "languages": ["wat", "wasm"]
+  "name": "gabagool-debug",
+  "displayName": "Gabagool WASM Debugger",
+  "version": "0.0.1",
+  "publisher": "gabagool",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": ["Debuggers"],
+  "contributes": {
+    "debuggers": [
+      {
+        "type": "gabagool",
+        "label": "Gabagool WASM",
+        "program": "/Users/matthewkim/Desktop/gabagool/target/debug/gabagool-debug-adapter",
+        "languages": ["wat", "wasm"],
+        "configurationAttributes": {
+          "launch": {
+            "required": ["program"],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Path to .wasm file"
+              },
+              "function": {
+                "type": "string",
+                "description": "Function to debug",
+                "default": "_start"
+              },
+              "args": {
+                "type": "array",
+                "description": "Arguments to pass to the function",
+                "default": []
+              }
             }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "gabagool",
+            "request": "launch",
+            "name": "Debug WASM",
+            "program": "${workspaceFolder}/programs/fibonacci.wasm",
+            "function": "fib",
+            "args": [10]
+          }
         ]
-    }
+      }
+    ]
+  }
 }
