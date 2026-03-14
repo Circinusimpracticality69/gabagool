@@ -5,7 +5,9 @@
             "type": "gabagool",
             "request": "launch",
             "name": "Debug WASM",
-            "program": "${workspaceFolder}/programs/fibonacci.wasm"
+            "program": "${workspaceFolder}/programs/fibonacci.wasm",
+            "function": "fib",
+            "args": [10]
         }
     ]
 }

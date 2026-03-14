@@ -1,3 +1,5 @@
+#![warn(clippy::nursery)]
+
 mod server;
 mod transport;
 

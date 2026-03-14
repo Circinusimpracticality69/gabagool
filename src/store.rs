@@ -243,7 +243,7 @@ pub struct Store {
     pub element_segments: Vec<ElementInstance>,
     pub data_segments: Vec<DataInstance>,
 
-    instances: Vec<InstantiatedModule>,
+    pub(crate) instances: Vec<InstantiatedModule>,
     /// maps func addr → (instance_idx, compiled_func_idx)
     func_addr_to_module: Vec<Option<(u16, u32)>>,
 

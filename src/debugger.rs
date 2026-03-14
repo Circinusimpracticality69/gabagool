@@ -2,8 +2,16 @@ use std::{collections::HashSet, num::NonZeroU64};
 
 use crate::{
     exponential_decay::{Entry, ExponentialDecayBuffer},
-    ExecutionState, Instance, RawValue, Result, Store, Trap,
+    ExecutionState, Instance, RawValue, Result, Store, Trap, ValueType,
 };
+
+pub struct FrameInfo {
+    pub module_idx: u16,
+    pub compiled_func_idx: u32,
+    pub pc: usize,
+    pub locals: Vec<RawValue>,
+    pub local_types: Vec<ValueType>,
+}
 
 #[derive(Hash, Eq, PartialEq, Clone, Debug)]
 pub struct Breakpoint {
@@ -99,6 +107,26 @@ impl Debugger {
 
     pub fn result(&self) -> Option<&[RawValue]> {
         self.completed.as_deref()
+    }
+
+    pub const fn is_completed(&self) -> bool {
+        self.completed.is_some()
+    }
+
+    /// Returns call stack frames (bottom to top).
+    pub fn call_stack(&self) -> impl Iterator<Item = FrameInfo> + use<'_> {
+        self.store.call_stack.iter().map(|frame| {
+            let cf = &self.store.instances[frame.module_idx as usize]
+                .code
+                .compiled_funcs[frame.compiled_func_idx as usize];
+            FrameInfo {
+                module_idx: frame.module_idx,
+                compiled_func_idx: frame.compiled_func_idx,
+                pc: frame.pc,
+                locals: frame.locals.clone(),
+                local_types: cf.local_types.clone(),
+            }
+        })
     }
 
     pub fn into_store(self) -> Store {
