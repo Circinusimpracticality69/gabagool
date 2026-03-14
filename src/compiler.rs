@@ -238,6 +238,7 @@ impl<'a> Compiler<'a> {
         self.emit_label(end_label);
         self.emit(Op::Return);
         self.strip_dead_labels();
+        #[cfg(not(feature = "debug"))]
         self.fuse_ops();
 
         let assembled = self.assemble();
@@ -474,6 +475,7 @@ impl<'a> Compiler<'a> {
         });
     }
 
+    #[cfg(not(feature = "debug"))]
     fn fuse_ops(&mut self) {
         let mut out = Vec::with_capacity(self.ops.len());
         let mut i = 0;

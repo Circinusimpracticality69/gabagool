@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-gabagool = { path = ".." }
+gabagool = { path = "..", features = ["debug"] }
 serde_json = "1"
 wast = "245"
 
