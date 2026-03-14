@@ -1,7 +1,7 @@
 use crate::source_map::WatSourceMap;
 use crate::transport::Transport;
 use gabagool::debugger::{Debugger, StepResult};
-use gabagool::{Module, RawValue, Store};
+use gabagool::{Module, RawValue, Store, ValueType};
 use serde_json::{json, Value};
 use std::fs;
 use std::io::{Error, Result};
@@ -47,6 +47,8 @@ impl DAPServer {
                 "configurationDone" => self.handle_configuration_done(request_seq)?,
                 "threads" => self.handle_threads(request_seq)?,
                 "stackTrace" => self.handle_stack_trace(request_seq)?,
+                "scopes" => self.handle_scopes(request_seq, &msg)?,
+                "variables" => self.handle_variables(request_seq, &msg)?,
                 "next" | "stepIn" => self.handle_step_forward(request_seq, command)?,
                 "stepBack" => self.handle_step_back(request_seq)?,
                 "continue" => self.handle_continue(request_seq)?,
@@ -205,6 +207,64 @@ impl DAPServer {
         )
     }
 
+    fn handle_scopes(&mut self, request_seq: i64, msg: &Value) -> Result<()> {
+        let frame_id = msg["arguments"]["frameId"].as_i64().unwrap_or(0);
+        self.send_response(
+            request_seq,
+            "scopes",
+            json!({
+                "scopes": [
+                    { "name": "Locals", "variablesReference": frame_id + 1, "expensive": false },
+                ]
+            }),
+        )
+    }
+
+    fn handle_variables(&mut self, request_seq: i64, msg: &Value) -> Result<()> {
+        let var_ref = msg["arguments"]["variablesReference"].as_i64().unwrap_or(0);
+        let frame_id = var_ref as usize - 1;
+
+        let dbg = self.debugger()?;
+        let frames = dbg.call_stack().collect::<Vec<_>>();
+
+        if frames.is_empty() {
+            return self.send_response(request_seq, "variables", json!({ "variables": [] }));
+        }
+
+        let frame_idx = frames.len().saturating_sub(1).saturating_sub(frame_id);
+
+        // find the right frame, then we resolve the locals and display names
+        let frame = &frames[frame_idx];
+        let local_func_idx = frame
+            .compiled_func_idx
+            .saturating_sub(self.num_imported_funcs) as usize;
+
+        let vars = frame
+            .locals
+            .iter()
+            .zip(frame.local_types.iter())
+            .enumerate()
+            .map(|(i, (val, ty))| {
+                let default_name = format!("local_{i}");
+                let name = self
+                    .source_map
+                    .as_ref()
+                    .and_then(|sm| sm.local_name(local_func_idx, i))
+                    .unwrap_or(&default_name)
+                    .to_string();
+
+                json!({
+                    "name": name,
+                    "value": format_value(val, ty),
+                    "type": format!("{ty:?}"),
+                    "variablesReference": 0,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        self.send_response(request_seq, "variables", json!({ "variables": vars }))
+    }
+
     fn handle_step_forward(&mut self, request_seq: i64, command: &str) -> Result<()> {
         let result = self.debugger_mut()?.step_forward().map_err(err)?;
         self.send_response(request_seq, command, json!({}))?;
@@ -282,5 +342,15 @@ impl DAPServer {
             "event": event,
             "body": body,
         }))
+    }
+}
+
+fn format_value(val: &RawValue, ty: &ValueType) -> String {
+    match ty {
+        ValueType::I32 => val.as_i32().to_string(),
+        ValueType::I64 => val.as_i64().to_string(),
+        ValueType::F32 => val.as_f32().to_string(),
+        ValueType::F64 => val.as_f64().to_string(),
+        _ => format!("{val:?}"),
     }
 }

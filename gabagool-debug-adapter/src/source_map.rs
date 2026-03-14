@@ -115,6 +115,13 @@ impl WatSourceMap {
     pub fn func_name(&self, local_func_idx: usize) -> Option<&str> {
         self.func_names.get(local_func_idx)?.as_deref()
     }
+
+    pub fn local_name(&self, local_func_idx: usize, local_idx: usize) -> Option<&str> {
+        self.local_names
+            .get(local_func_idx)?
+            .get(local_idx)
+            .map(|s| s.as_str())
+    }
 }
 
 impl std::fmt::Display for WatSourceMap {
