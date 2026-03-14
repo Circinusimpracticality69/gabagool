@@ -221,6 +221,7 @@ impl DAPServer {
             json!({
                 "scopes": [
                     { "name": "Locals", "variablesReference": Scope::Locals.encode(frame_id), "expensive": false },
+                    { "name": "Globals", "variablesReference": Scope::Globals.encode(frame_id), "expensive": false },
                     { "name": "Stack", "variablesReference": Scope::Stack.encode(frame_id), "expensive": false },
                 ]
             }),
@@ -264,6 +265,22 @@ impl DAPServer {
                     })
                 }))
                 .collect::<Vec<_>>()
+            }
+            Scope::Globals => {
+                let frame = &frames[frame_idx];
+                let globals = dbg.globals(frame.module_idx);
+                globals
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (gt, val))| {
+                        json!({
+                            "name": format!("global_{i}"),
+                            "value": format_value(val, &gt.value_type),
+                            "type": format!("{:?} {:?}", gt.mutability, gt.value_type),
+                            "variablesReference": 0,
+                        })
+                    })
+                    .collect::<Vec<_>>()
             }
             Scope::Locals => {
                 let frame = &frames[frame_idx];
@@ -421,15 +438,17 @@ impl DAPServer {
 enum Scope {
     Locals,
     Stack,
+    Globals,
 }
 
-const NUM_SCOPES: i64 = 2;
+const NUM_SCOPES: i64 = 3;
 
 impl Scope {
     const fn encode(&self, frame_id: i64) -> i64 {
         let kind = match self {
             Self::Locals => 0,
             Self::Stack => 1,
+            Self::Globals => 2,
         };
         frame_id * NUM_SCOPES + kind + 1
     }
@@ -439,6 +458,7 @@ impl Scope {
         let frame_id = (adjusted / NUM_SCOPES) as usize;
         let scope = match adjusted % NUM_SCOPES {
             1 => Self::Stack,
+            2 => Self::Globals,
             _ => Self::Locals,
         };
         (scope, frame_id)

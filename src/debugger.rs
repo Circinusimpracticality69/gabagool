@@ -2,7 +2,7 @@ use std::{collections::HashSet, num::NonZeroU64};
 
 use crate::{
     exponential_decay::{Entry, ExponentialDecayBuffer},
-    ExecutionState, Instance, RawValue, Result, Store, Trap, ValueType,
+    ExecutionState, GlobalType, Instance, RawValue, Result, Store, Trap, ValueType,
 };
 
 pub struct FrameInfo {
@@ -157,6 +157,17 @@ impl Debugger {
 
     pub fn value_stack(&self) -> &[RawValue] {
         self.store.value_stack()
+    }
+
+    pub fn globals(&self, module_idx: u16) -> Vec<(&GlobalType, &RawValue)> {
+        let inst = &self.store.instances[module_idx as usize];
+        inst.global_addrs
+            .iter()
+            .map(|&addr| {
+                let g = &self.store.globals[addr];
+                (&g.global_type, &g.value)
+            })
+            .collect()
     }
 
     pub fn into_store(self) -> Store {
