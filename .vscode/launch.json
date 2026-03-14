@@ -4,6 +4,13 @@
         {
             "type": "gabagool",
             "request": "launch",
+            "name": "demo(5)",
+            "program": "${workspaceFolder}/programs/demo.wasm",
+            "args": "5"
+        },
+        {
+            "type": "gabagool",
+            "request": "launch",
             "name": "fibonacci(10)",
             "program": "${workspaceFolder}/programs/fibonacci.wasm",
             "args": "10"
