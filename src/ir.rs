@@ -30,10 +30,12 @@ pub struct CompiledFunction {
     pub ops: Vec<Op>,
     pub type_index: u32,
     pub num_args: u32,
-
     // contains [args; num_args] [...local_types]
     pub local_types: Vec<ValueType>,
     pub(crate) max_stack_height: u32,
+    /// maps each compiled op to the source instruction index that produced it
+    #[cfg(feature = "debug")]
+    pub source_positions: Vec<u32>,
 }
 
 #[repr(u16)]

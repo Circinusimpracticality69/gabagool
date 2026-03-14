@@ -637,8 +637,11 @@ impl Snapshot for CompiledFunction {
         self.max_stack_height.encode(buf);
     }
     fn decode(buf: &mut &[u8]) -> Self {
+        let ops = decode_bulk::<Op>(buf);
         Self {
-            ops: decode_bulk::<Op>(buf),
+            #[cfg(feature = "debug")]
+            source_positions: vec![0; ops.len()],
+            ops,
             type_index: u32::decode(buf),
             num_args: u32::decode(buf),
             local_types: Vec::<ValueType>::decode(buf),

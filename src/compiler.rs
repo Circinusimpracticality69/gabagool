@@ -60,6 +60,12 @@ struct Compiler<'a> {
     func_signatures: Vec<(usize, usize)>,
     tag_signatures: Vec<usize>,
     ops: Vec<CompilerOp>,
+    #[cfg(feature = "debug")]
+    source_positions: Vec<u32>,
+    #[cfg(feature = "debug")]
+    current_source_pos: u32,
+    #[cfg(feature = "debug")]
+    next_source_pos: u32,
     block_stack: Vec<BlockContext>,
     stack_height: i32,
     max_stack_height: i32,
@@ -123,6 +129,12 @@ pub fn compile(module: &ParsedModule) -> ModuleCode {
                 func_signatures: func_signatures.clone(),
                 tag_signatures: tag_signatures.clone(),
                 ops: Vec::new(),
+                #[cfg(feature = "debug")]
+                source_positions: Vec::new(),
+                #[cfg(feature = "debug")]
+                current_source_pos: 0,
+                #[cfg(feature = "debug")]
+                next_source_pos: 0,
                 block_stack: Vec::new(),
                 stack_height: 0,
                 max_stack_height: 0,
@@ -164,6 +176,12 @@ pub fn compile_function_into_code(
         func_signatures: Vec::new(),
         tag_signatures: Vec::new(),
         ops: Vec::new(),
+        #[cfg(feature = "debug")]
+        source_positions: Vec::new(),
+        #[cfg(feature = "debug")]
+        current_source_pos: 0,
+        #[cfg(feature = "debug")]
+        next_source_pos: 0,
         block_stack: Vec::new(),
         stack_height: 0,
         max_stack_height: 0,
@@ -265,6 +283,8 @@ impl<'a> Compiler<'a> {
             num_args: num_args as u32,
             local_types,
             max_stack_height: self.max_stack_height as u32,
+            #[cfg(feature = "debug")]
+            source_positions: std::mem::take(&mut self.source_positions),
         }
     }
 
@@ -276,10 +296,14 @@ impl<'a> Compiler<'a> {
 
     fn emit_label(&mut self, label: LabelId) {
         self.ops.push(CompilerOp::Label(label));
+        #[cfg(feature = "debug")]
+        self.source_positions.push(u32::MAX);
     }
 
     fn emit(&mut self, op: Op) {
         self.ops.push(CompilerOp::Op(op));
+        #[cfg(feature = "debug")]
+        self.source_positions.push(self.current_source_pos);
     }
 
     fn compile_catch_clauses(
@@ -373,8 +397,19 @@ impl<'a> Compiler<'a> {
             }
         }
 
-        // resolve targets
+        // resolve targets and strip labels
         let mut out = Vec::with_capacity(pos as usize);
+        #[cfg(feature = "debug")]
+        let mut assembled_positions = Vec::with_capacity(pos as usize);
+        #[cfg(feature = "debug")]
+        for (idx, cop) in self.ops.iter().enumerate() {
+            if let CompilerOp::Op(mut op) = *cop {
+                Self::resolve_targets(&mut op, &label_positions);
+                out.push(op);
+                assembled_positions.push(self.source_positions[idx]);
+            }
+        }
+        #[cfg(not(feature = "debug"))]
         for cop in &self.ops {
             if let CompilerOp::Op(mut op) = *cop {
                 Self::resolve_targets(&mut op, &label_positions);
@@ -397,6 +432,10 @@ impl<'a> Compiler<'a> {
         }
 
         self.ops.clear();
+        #[cfg(feature = "debug")]
+        {
+            self.source_positions = assembled_positions;
+        }
 
         out
     }
@@ -469,10 +508,29 @@ impl<'a> Compiler<'a> {
                 live[clause.target as usize] = true;
             }
         }
+        #[cfg(not(feature = "debug"))]
         self.ops.retain(|cop| match cop {
             CompilerOp::Label(id) => live[id.0 as usize],
             _ => true,
         });
+
+        #[cfg(feature = "debug")]
+        {
+            let mut j = 0;
+            for i in 0..self.ops.len() {
+                let keep = match &self.ops[i] {
+                    CompilerOp::Label(id) => live[id.0 as usize],
+                    _ => true,
+                };
+                if keep {
+                    self.ops[j] = self.ops[i];
+                    self.source_positions[j] = self.source_positions[i];
+                    j += 1;
+                }
+            }
+            self.ops.truncate(j);
+            self.source_positions.truncate(j);
+        }
     }
 
     #[cfg(not(feature = "debug"))]
@@ -1072,6 +1130,12 @@ impl<'a> Compiler<'a> {
     }
 
     fn compile_instruction(&mut self, instr: &Instruction) {
+        #[cfg(feature = "debug")]
+        {
+            self.current_source_pos = self.next_source_pos;
+            self.next_source_pos += 1;
+        }
+
         match instr {
             Instruction::Block(..) | Instruction::Loop(..) | Instruction::IfElse(..) => {}
             _ => {

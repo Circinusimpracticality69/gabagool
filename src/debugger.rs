@@ -138,7 +138,19 @@ impl Debugger {
                 pc: frame.pc,
                 locals: frame.locals.clone(),
                 local_types: cf.local_types.clone(),
-                source_position: frame.pc as u32,
+                source_position: {
+                    #[cfg(feature = "debug")]
+                    {
+                        cf.source_positions
+                            .get(frame.pc)
+                            .copied()
+                            .unwrap_or(frame.pc as u32)
+                    }
+                    #[cfg(not(feature = "debug"))]
+                    {
+                        frame.pc as u32
+                    }
+                },
             }
         })
     }
