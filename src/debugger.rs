@@ -159,6 +159,10 @@ impl Debugger {
         self.breakpoints.remove(breakpoint)
     }
 
+    pub fn clear_breakpoints(&mut self) {
+        self.breakpoints.clear();
+    }
+
     fn at_breakpoint(&self) -> bool {
         let Some(frame) = self.store.call_stack.last() else {
             return false;

@@ -116,6 +116,10 @@ impl WatSourceMap {
         self.func_names.get(local_func_idx)?.as_deref()
     }
 
+    pub fn line_to_instruction(&self, line: usize) -> Option<(usize, u32)> {
+        self.line_to_instruction.get(&line).copied()
+    }
+
     pub fn local_name(&self, local_func_idx: usize, local_idx: usize) -> Option<&str> {
         self.local_names
             .get(local_func_idx)?

@@ -1,6 +1,6 @@
 use crate::source_map::WatSourceMap;
 use crate::transport::Transport;
-use gabagool::debugger::{Debugger, StepResult};
+use gabagool::debugger::{Breakpoint, Debugger, StepResult};
 use gabagool::{Module, RawValue, Store, ValueType};
 use serde_json::{json, Value};
 use std::fs;
@@ -49,6 +49,7 @@ impl DAPServer {
                 "stackTrace" => self.handle_stack_trace(request_seq)?,
                 "scopes" => self.handle_scopes(request_seq, &msg)?,
                 "variables" => self.handle_variables(request_seq, &msg)?,
+                "setBreakpoints" => self.handle_set_breakpoints(request_seq, &msg)?,
                 "next" | "stepIn" => self.handle_step_forward(request_seq, command)?,
                 "stepBack" => self.handle_step_back(request_seq)?,
                 "continue" => self.handle_continue(request_seq)?,
@@ -64,6 +65,12 @@ impl DAPServer {
         }
 
         Ok(())
+    }
+
+    fn source_map(&self) -> Result<&WatSourceMap> {
+        self.source_map
+            .as_ref()
+            .ok_or_else(|| err("source map not initialized"))
     }
 
     fn debugger(&self) -> Result<&Debugger> {
@@ -165,25 +172,24 @@ impl DAPServer {
                     .saturating_sub(self.num_imported_funcs)
                     as usize;
 
-                let (name, line, source) = if let Some(sm) = &self.source_map {
-                    let name = sm
-                        .func_name(local_func_idx)
-                        .unwrap_or(&format!("func_{}", frame.compiled_func_idx))
-                        .to_string();
-                    let line = sm
-                        .instruction_to_line(local_func_idx, frame.source_position)
-                        .unwrap_or(0);
-                    let source = json!({
-                        "name": std::path::Path::new(&sm.path)
-                            .file_name()
-                            .and_then(|f| f.to_str())
-                            .unwrap_or(&sm.path),
-                        "path": sm.path,
-                    });
-                    (name, line, source)
-                } else {
-                    unreachable!("source map should exist by now")
-                };
+                let sm = self
+                    .source_map
+                    .as_ref()
+                    .expect("source map not initialized");
+                let name = sm
+                    .func_name(local_func_idx)
+                    .unwrap_or(&format!("func_{}", frame.compiled_func_idx))
+                    .to_string();
+                let line = sm
+                    .instruction_to_line(local_func_idx, frame.source_position)
+                    .unwrap_or(0);
+                let source = json!({
+                    "name": std::path::Path::new(&sm.path)
+                        .file_name()
+                        .and_then(|f| f.to_str())
+                        .unwrap_or(&sm.path),
+                    "path": sm.path,
+                });
 
                 json!({
                     "id": i,
@@ -270,10 +276,12 @@ impl DAPServer {
                     .enumerate()
                     .map(|(i, (val, ty))| {
                         let default_name = format!("local_{i}");
-                        let name = self
+                        let sm = self
                             .source_map
                             .as_ref()
-                            .and_then(|sm| sm.local_name(local_func_idx, i))
+                            .expect("source map not initialized");
+                        let name = sm
+                            .local_name(local_func_idx, i)
                             .unwrap_or(&default_name)
                             .to_string();
                         json!({
@@ -288,6 +296,43 @@ impl DAPServer {
         };
 
         self.send_response(request_seq, "variables", json!({ "variables": vars }))
+    }
+
+    fn handle_set_breakpoints(&mut self, request_seq: i64, msg: &Value) -> Result<()> {
+        let args = &msg["arguments"];
+        let bp_args = args["breakpoints"].as_array().cloned().unwrap_or_default();
+
+        let mut breakpoints = Vec::new();
+        let mut result_bps = Vec::new();
+
+        for bp_arg in &bp_args {
+            let line = bp_arg["line"].as_u64().unwrap_or(0) as usize;
+
+            let sm = self.source_map()?;
+            let resolved =
+                sm.line_to_instruction(line)
+                    .map(|(local_func_idx, instruction_index)| {
+                        let compiled_func_idx = local_func_idx as u32 + self.num_imported_funcs;
+                        Breakpoint::new(0, compiled_func_idx, instruction_index as usize)
+                    });
+
+            result_bps.push(json!({ "verified": resolved.is_some(), "line": line }));
+            if let Some(bp) = resolved {
+                breakpoints.push(bp);
+            }
+        }
+
+        let dbg = self.debugger_mut()?;
+        dbg.clear_breakpoints();
+        for bp in breakpoints {
+            dbg.set_breakpoint(bp);
+        }
+
+        self.send_response(
+            request_seq,
+            "setBreakpoints",
+            json!({ "breakpoints": result_bps }),
+        )
     }
 
     fn handle_step_forward(&mut self, request_seq: i64, command: &str) -> Result<()> {
