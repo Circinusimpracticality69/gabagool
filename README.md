@@ -1,3 +1,7 @@
+<p> 
+  <img src="logo.svg" width="160" alt="gabagool logo">
+</p>
+
 # gabagool
 
 A WebAssembly interpreter written from scratch. It also contains a time travel debugger.
