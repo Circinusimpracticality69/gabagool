@@ -143,6 +143,10 @@ impl Debugger {
         })
     }
 
+    pub fn value_stack(&self) -> &[RawValue] {
+        self.store.value_stack()
+    }
+
     pub fn into_store(self) -> Store {
         self.store
     }

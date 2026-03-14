@@ -214,7 +214,8 @@ impl DAPServer {
             "scopes",
             json!({
                 "scopes": [
-                    { "name": "Locals", "variablesReference": frame_id + 1, "expensive": false },
+                    { "name": "Locals", "variablesReference": Scope::Locals.encode(frame_id), "expensive": false },
+                    { "name": "Stack", "variablesReference": Scope::Stack.encode(frame_id), "expensive": false },
                 ]
             }),
         )
@@ -222,7 +223,7 @@ impl DAPServer {
 
     fn handle_variables(&mut self, request_seq: i64, msg: &Value) -> Result<()> {
         let var_ref = msg["arguments"]["variablesReference"].as_i64().unwrap_or(0);
-        let frame_id = var_ref as usize - 1;
+        let (scope, frame_id) = Scope::decode(var_ref);
 
         let dbg = self.debugger()?;
         let frames = dbg.call_stack().collect::<Vec<_>>();
@@ -233,34 +234,58 @@ impl DAPServer {
 
         let frame_idx = frames.len().saturating_sub(1).saturating_sub(frame_id);
 
-        // find the right frame, then we resolve the locals and display names
-        let frame = &frames[frame_idx];
-        let local_func_idx = frame
-            .compiled_func_idx
-            .saturating_sub(self.num_imported_funcs) as usize;
+        let vars = match scope {
+            Scope::Stack => {
+                let stack = dbg.value_stack();
+                stack
+                    .iter()
+                    .enumerate()
+                    .rev()
+                    .map(|(i, val)| {
+                        let name = if i == stack.len() - 1 {
+                            format!("[{i}] (top)")
+                        } else {
+                            format!("[{i}]")
+                        };
+                        json!({
+                            "name": name,
+                            "value": format!("{}", val.as_i32()),
+                            "type": "i32",
+                            "variablesReference": 0,
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            }
+            Scope::Locals => {
+                let frame = &frames[frame_idx];
+                let local_func_idx = frame
+                    .compiled_func_idx
+                    .saturating_sub(self.num_imported_funcs)
+                    as usize;
 
-        let vars = frame
-            .locals
-            .iter()
-            .zip(frame.local_types.iter())
-            .enumerate()
-            .map(|(i, (val, ty))| {
-                let default_name = format!("local_{i}");
-                let name = self
-                    .source_map
-                    .as_ref()
-                    .and_then(|sm| sm.local_name(local_func_idx, i))
-                    .unwrap_or(&default_name)
-                    .to_string();
-
-                json!({
-                    "name": name,
-                    "value": format_value(val, ty),
-                    "type": format!("{ty:?}"),
-                    "variablesReference": 0,
-                })
-            })
-            .collect::<Vec<_>>();
+                frame
+                    .locals
+                    .iter()
+                    .zip(frame.local_types.iter())
+                    .enumerate()
+                    .map(|(i, (val, ty))| {
+                        let default_name = format!("local_{i}");
+                        let name = self
+                            .source_map
+                            .as_ref()
+                            .and_then(|sm| sm.local_name(local_func_idx, i))
+                            .unwrap_or(&default_name)
+                            .to_string();
+                        json!({
+                            "name": name,
+                            "value": format_value(val, ty),
+                            "type": format!("{ty:?}"),
+                            "variablesReference": 0,
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            }
+        };
 
         self.send_response(request_seq, "variables", json!({ "variables": vars }))
     }
@@ -342,6 +367,33 @@ impl DAPServer {
             "event": event,
             "body": body,
         }))
+    }
+}
+
+enum Scope {
+    Locals,
+    Stack,
+}
+
+const NUM_SCOPES: i64 = 2;
+
+impl Scope {
+    const fn encode(&self, frame_id: i64) -> i64 {
+        let kind = match self {
+            Self::Locals => 0,
+            Self::Stack => 1,
+        };
+        frame_id * NUM_SCOPES + kind + 1
+    }
+
+    const fn decode(var_ref: i64) -> (Self, usize) {
+        let adjusted = var_ref - 1;
+        let frame_id = (adjusted / NUM_SCOPES) as usize;
+        let scope = match adjusted % NUM_SCOPES {
+            1 => Self::Stack,
+            _ => Self::Locals,
+        };
+        (scope, frame_id)
     }
 }
 

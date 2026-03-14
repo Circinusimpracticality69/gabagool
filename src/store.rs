@@ -276,6 +276,10 @@ impl Debug for Store {
 }
 
 impl Store {
+    pub fn value_stack(&self) -> &[RawValue] {
+        self.stack.snapshot_data().0
+    }
+
     pub fn new() -> Self {
         Self {
             functions: vec![],
