@@ -1,4 +1,5 @@
 target/
+gabagool-debug-adapter/bin/
 /tests/spec/
 /tests/components/
 game-of-life*.gabagool

@@ -12,7 +12,7 @@
       {
         "type": "gabagool",
         "label": "Gabagool WASM",
-        "program": "/Users/matthewkim/Desktop/gabagool/target/debug/gabagool-debug-adapter",
+        "program": "./bin/gabagool-debug-adapter",
         "languages": ["wat", "wasm"],
         "configurationAttributes": {
           "launch": {
@@ -27,9 +27,9 @@
                 "description": "Function to debug (auto-detected if omitted)"
               },
               "args": {
-                "type": "array",
-                "description": "Arguments to pass to the function",
-                "default": []
+                "type": "string",
+                "description": "Arguments (comma-separated integers, e.g. '3,2')",
+                "default": ""
               }
             }
           }
