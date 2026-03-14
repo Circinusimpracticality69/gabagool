@@ -1,3 +1,4 @@
+use crate::source_map::WatSourceMap;
 use crate::transport::Transport;
 use gabagool::debugger::{Debugger, StepResult};
 use gabagool::{Module, RawValue, Store};
@@ -13,6 +14,9 @@ pub struct DAPServer {
     transport: Transport,
     seq: i64,
     debugger: Option<Debugger>,
+    source_map: Option<WatSourceMap>,
+    // offset for local func index.
+    num_imported_funcs: u32,
 }
 
 impl DAPServer {
@@ -21,6 +25,8 @@ impl DAPServer {
             transport,
             seq: 0,
             debugger: None,
+            source_map: None,
+            num_imported_funcs: 0,
         }
     }
 
@@ -84,9 +90,18 @@ impl DAPServer {
             })
             .unwrap_or_default();
 
+        let source_path = args["source"]
+            .as_str()
+            .map(String::from)
+            .unwrap_or_else(|| program.replace(".wasm", ".wat"));
+
+        let wat_source = fs::read_to_string(&source_path)?;
+        self.source_map = Some(WatSourceMap::from_wat(&source_path, &wat_source));
+
         match Self::create_debugger(program, function, call_args) {
-            Ok(debugger) => {
+            Ok((debugger, num_imported_funcs)) => {
                 self.debugger = Some(debugger);
+                self.num_imported_funcs = num_imported_funcs;
                 self.send_response(request_seq, "launch", json!({}))?;
                 self.send_event("initialized", json!({}))
             }
@@ -94,19 +109,24 @@ impl DAPServer {
         }
     }
 
-    fn create_debugger(program: &str, function: &str, args: Vec<RawValue>) -> Result<Debugger> {
+    fn create_debugger(
+        program: &str,
+        function: &str,
+        args: Vec<RawValue>,
+    ) -> Result<(Debugger, u32)> {
         let wasm = fs::read(program)?;
         let module = Module::new(&wasm).map_err(err)?;
+        let num_imported_funcs = module
+            .import_declarations()
+            .iter()
+            .filter(|imp| matches!(imp.description, gabagool::ImportDescription::Func(_)))
+            .count() as u32;
         let mut store = Store::new();
         let instance = store.instantiate(&module, vec![]).map_err(err)?;
-
-        // note: we just use the default config, we parsed the module and the store
-        // wonder if we can come up with a heuristic based on how "large" the module
-        // is...
         let mut debugger = Debugger::new(store, instance);
         debugger.start(function, args).map_err(err)?;
 
-        Ok(debugger)
+        Ok((debugger, num_imported_funcs))
     }
 
     fn handle_configuration_done(&mut self, request_seq: i64) -> Result<()> {
@@ -138,15 +158,37 @@ impl DAPServer {
             .call_stack()
             .enumerate()
             .map(|(i, frame)| {
+                let local_func_idx = frame
+                    .compiled_func_idx
+                    .saturating_sub(self.num_imported_funcs)
+                    as usize;
+
+                let (name, line, source) = if let Some(sm) = &self.source_map {
+                    let name = sm
+                        .func_name(local_func_idx)
+                        .unwrap_or(&format!("func_{}", frame.compiled_func_idx))
+                        .to_string();
+                    let line = sm
+                        .instruction_to_line(local_func_idx, frame.source_position)
+                        .unwrap_or(0);
+                    let source = json!({
+                        "name": std::path::Path::new(&sm.path)
+                            .file_name()
+                            .and_then(|f| f.to_str())
+                            .unwrap_or(&sm.path),
+                        "path": sm.path,
+                    });
+                    (name, line, source)
+                } else {
+                    unreachable!("source map should exist by now")
+                };
+
                 json!({
                     "id": i,
-                    "name": format!("func_{}", frame.compiled_func_idx),
-                    "line": 0,
+                    "name": name,
+                    "line": line,
                     "column": 0,
-                    "source": {
-                        "name": format!("module_{}", frame.module_idx),
-                        "sourceReference": 0,
-                    },
+                    "source": source,
                 })
             })
             .collect::<Vec<_>>();

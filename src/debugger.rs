@@ -11,6 +11,9 @@ pub struct FrameInfo {
     pub pc: usize,
     pub locals: Vec<RawValue>,
     pub local_types: Vec<ValueType>,
+    /// Pre-order instruction index from the original wasm binary.
+    /// Use this to map back to .wat line numbers.
+    pub source_position: u32,
 }
 
 #[derive(Hash, Eq, PartialEq, Clone, Debug)]
@@ -18,6 +21,16 @@ pub struct Breakpoint {
     module_idx: u16,
     compiled_func_idx: u32,
     pc: usize,
+}
+
+impl Breakpoint {
+    pub const fn new(module_idx: u16, compiled_func_idx: u32, pc: usize) -> Self {
+        Self {
+            module_idx,
+            compiled_func_idx,
+            pc,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -125,6 +138,7 @@ impl Debugger {
                 pc: frame.pc,
                 locals: frame.locals.clone(),
                 local_types: cf.local_types.clone(),
+                source_position: frame.pc as u32,
             }
         })
     }

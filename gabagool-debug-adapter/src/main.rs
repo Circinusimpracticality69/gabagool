@@ -1,6 +1,7 @@
 #![warn(clippy::nursery)]
 
 mod server;
+mod source_map;
 mod transport;
 
 use server::DAPServer;

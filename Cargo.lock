@@ -85,7 +85,9 @@ name = "gabagool-debug-adapter"
 version = "0.1.0"
 dependencies = [
  "gabagool",
+ "insta",
  "serde_json",
+ "wast",
 ]
 
 [[package]]
