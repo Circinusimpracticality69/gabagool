@@ -43,6 +43,8 @@ impl DAPServer {
                 "stackTrace" => self.handle_stack_trace(request_seq)?,
                 "next" | "stepIn" => self.handle_step_forward(request_seq, command)?,
                 "stepBack" => self.handle_step_back(request_seq)?,
+                "continue" => self.handle_continue(request_seq)?,
+                "reverseContinue" => self.handle_reverse_continue(request_seq)?,
                 "disconnect" => {
                     self.send_response(request_seq, "disconnect", json!({}))?;
                     break;
@@ -170,6 +172,18 @@ impl DAPServer {
     fn handle_step_back(&mut self, request_seq: i64) -> Result<()> {
         let result = self.debugger_mut()?.step_back().map_err(err)?;
         self.send_response(request_seq, "stepBack", json!({}))?;
+        self.send_step_event(result)
+    }
+
+    fn handle_continue(&mut self, request_seq: i64) -> Result<()> {
+        let result = self.debugger_mut()?.continue_forward().map_err(err)?;
+        self.send_response(request_seq, "continue", json!({}))?;
+        self.send_step_event(result)
+    }
+
+    fn handle_reverse_continue(&mut self, request_seq: i64) -> Result<()> {
+        let result = self.debugger_mut()?.continue_backward().map_err(err)?;
+        self.send_response(request_seq, "reverseContinue", json!({}))?;
         self.send_step_event(result)
     }
 
