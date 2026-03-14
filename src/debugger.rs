@@ -552,4 +552,35 @@ mod tests {
         assert!(matches!(result, StepResult::ReachedStart));
         assert_eq!(dbg.instruction_count(), 0);
     }
+
+    #[cfg(feature = "debug")]
+    #[test]
+    fn test_step_back_preserves_source_positions() {
+        let mut dbg = setup_debugger(
+            "programs/stair_climb.wasm",
+            "stair_climb",
+            vec![RawValue::from(3_i32)],
+        );
+
+        let mut positions_at = Vec::new();
+        let frame = dbg.call_stack().last().unwrap();
+        positions_at.push(frame.source_position);
+
+        for _ in 0..10 {
+            dbg.step_forward().unwrap();
+            let frame = dbg.call_stack().last().unwrap();
+            positions_at.push(frame.source_position);
+        }
+
+        for _ in 0..10 {
+            dbg.step_back().unwrap();
+            let ic = dbg.instruction_count() as usize;
+            let frame = dbg.call_stack().last().unwrap();
+            assert_eq!(
+                frame.source_position, positions_at[ic],
+                "source position mismatch at instruction_count={}",
+                ic
+            );
+        }
+    }
 }
