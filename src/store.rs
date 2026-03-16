@@ -249,7 +249,7 @@ pub struct Store {
 
     // execution state
     stack: ValueStack,
-    pub(crate) call_stack: Vec<CallFrame>,
+    call_stack: Vec<CallFrame>,
     catch_stack: Vec<CatchFrame>,
     exceptions: Vec<Exception>,
     fuel: Option<u64>,
@@ -278,6 +278,10 @@ impl Debug for Store {
 impl Store {
     pub fn value_stack(&self) -> &[RawValue] {
         self.stack.snapshot_data().0
+    }
+
+    pub fn value_stack_from(&self, stack_base: usize) -> &[RawValue] {
+        self.stack.slice_from(stack_base)
     }
 
     pub fn new() -> Self {
@@ -344,6 +348,14 @@ impl Store {
 
     pub const fn fuel(&self) -> Option<u64> {
         self.fuel
+    }
+
+    pub fn call_stack(&self) -> &[CallFrame] {
+        &self.call_stack
+    }
+
+    pub fn top_frame(&self) -> Option<&CallFrame> {
+        self.call_stack.last()
     }
 
     fn extract_function_type(types: &[SubType], type_index: u32) -> Result<FunctionType> {

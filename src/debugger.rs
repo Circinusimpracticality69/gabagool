@@ -128,7 +128,7 @@ impl Debugger {
 
     /// Returns call stack frames (bottom to top).
     pub fn call_stack(&self) -> impl Iterator<Item = FrameInfo> + use<'_> {
-        self.store.call_stack.iter().map(|frame| {
+        self.store.call_stack().iter().map(|frame| {
             let cf = &self.store.instances[frame.module_idx as usize]
                 .code
                 .compiled_funcs[frame.compiled_func_idx as usize];
@@ -156,7 +156,10 @@ impl Debugger {
     }
 
     pub fn value_stack(&self) -> &[RawValue] {
-        self.store.value_stack()
+        let Some(frame) = self.store.top_frame() else {
+            return &[];
+        };
+        self.store.value_stack_from(frame.stack_base)
     }
 
     pub fn globals(&self, module_idx: u16) -> Vec<(&GlobalType, &RawValue)> {
@@ -187,7 +190,7 @@ impl Debugger {
     }
 
     fn at_breakpoint(&self) -> bool {
-        let Some(frame) = self.store.call_stack.last() else {
+        let Some(frame) = self.store.top_frame() else {
             return false;
         };
 
@@ -487,7 +490,7 @@ mod tests {
         for _ in 0..5 {
             dbg.step_forward().unwrap();
         }
-        let frame = dbg.store.call_stack.last().unwrap();
+        let frame = dbg.store.top_frame().unwrap();
         let bp = Breakpoint {
             module_idx: frame.module_idx,
             compiled_func_idx: frame.compiled_func_idx,
@@ -517,7 +520,7 @@ mod tests {
         for _ in 0..5 {
             dbg.step_forward().unwrap();
         }
-        let frame = dbg.store.call_stack.last().unwrap();
+        let frame = dbg.store.top_frame().unwrap();
         let bp = Breakpoint {
             module_idx: frame.module_idx,
             compiled_func_idx: frame.compiled_func_idx,
