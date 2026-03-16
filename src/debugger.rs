@@ -173,6 +173,26 @@ impl Debugger {
             .collect()
     }
 
+    pub fn read_memory(
+        &self,
+        module_idx: u16,
+        mem_idx: usize,
+        offset: usize,
+        length: usize,
+    ) -> Option<&[u8]> {
+        let inst = &self.store.instances[module_idx as usize];
+        let mem_addr = *inst.mem_addrs.get(mem_idx)?;
+        self.store.memories[mem_addr]
+            .data
+            .get(offset..offset + length)
+    }
+
+    pub fn memory_size(&self, module_idx: u16, mem_idx: usize) -> Option<usize> {
+        let inst = &self.store.instances[module_idx as usize];
+        let mem_addr = *inst.mem_addrs.get(mem_idx)?;
+        Some(self.store.memories[mem_addr].data.len())
+    }
+
     pub fn into_store(self) -> Store {
         self.store
     }

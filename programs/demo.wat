@@ -58,8 +58,17 @@
         i32.add
         global.set $counter
 
-        ;; stashing the running sum in memory
-        i32.const 0
+        ;; stashing the running sum in memory at offset $i*4
+        ;; open the Memory hex view to watch bytes fill in as you step
+        ;; after each i32.store you'll see 4 bytes appear (little-endian):
+        ;;   iter 1: 0x04 = 01 00 00 00  ($sum=1)
+        ;;   iter 2: 0x08 = 05 00 00 00  ($sum=5)
+        ;;   iter 3: 0x0c = 0e 00 00 00  ($sum=14)
+        ;;   iter 4: 0x10 = 1e 00 00 00  ($sum=30)
+        ;;   iter 5: 0x14 = 37 00 00 00  ($sum=55)
+        local.get $i
+        i32.const 4
+        i32.mul
         local.get $sum
         i32.store
 

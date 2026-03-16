@@ -1,3 +1,4 @@
+use crate::base64;
 use crate::source_map::WatSourceMap;
 use crate::transport::Transport;
 use gabagool::debugger::{Breakpoint, Debugger, StepResult};
@@ -40,6 +41,8 @@ impl DAPServer {
                     let body = json!({
                         "supportsStepBack": true,
                         "supportsConfigurationDoneRequest": true,
+                        "supportsReadMemoryRequest": true,
+                        "supportsMemoryEvent": true,
                     });
                     self.send_response(request_seq, command, body)?;
                 }
@@ -54,6 +57,7 @@ impl DAPServer {
                 "stepBack" => self.handle_step_back(request_seq)?,
                 "continue" => self.handle_continue(request_seq)?,
                 "reverseContinue" => self.handle_reverse_continue(request_seq)?,
+                "readMemory" => self.handle_read_memory(request_seq, &msg)?,
                 "disconnect" => {
                     self.send_response(request_seq, "disconnect", json!({}))?;
                     break;
@@ -238,6 +242,7 @@ impl DAPServer {
                     { "name": "Locals", "variablesReference": Scope::Locals.encode(frame_id), "expensive": false },
                     { "name": "Globals", "variablesReference": Scope::Globals.encode(frame_id), "expensive": false },
                     { "name": "Stack", "variablesReference": Scope::Stack.encode(frame_id), "expensive": false },
+                    { "name": "Memory", "variablesReference": Scope::Memory.encode(frame_id), "expensive": false },
                 ]
             }),
         )
@@ -328,6 +333,19 @@ impl DAPServer {
                     })
                     .collect::<Vec<_>>()
             }
+            Scope::Memory => {
+                let frame = &frames[frame_idx];
+                let total = dbg.memory_size(frame.module_idx, 0).unwrap_or(0);
+                let mem_ref = format!("mem_{}_{}", frame.module_idx, 0);
+
+                vec![json!({
+                    "name": "memory[0]",
+                    "value": format!("{total} bytes"),
+                    "type": "bytes",
+                    "variablesReference": 0,
+                    "memoryReference": mem_ref,
+                })]
+            }
         };
 
         self.send_response(request_seq, "variables", json!({ "variables": vars }))
@@ -394,7 +412,40 @@ impl DAPServer {
         self.send_step_event(result)
     }
 
+    fn handle_read_memory(&mut self, request_seq: i64, msg: &Value) -> Result<()> {
+        let args = &msg["arguments"];
+        let mem_ref = args["memoryReference"].as_str().unwrap_or("mem_0_0");
+        let offset = args["offset"].as_i64().unwrap_or(0) as usize;
+        let count = args["count"].as_i64().unwrap_or(0) as usize;
+
+        let (module_idx, mem_idx) = mem_ref
+            .strip_prefix("mem_")
+            .and_then(|s| s.split_once('_'))
+            .and_then(|(m, i)| Some((m.parse::<u16>().ok()?, i.parse::<usize>().ok()?)))
+            .unwrap_or((0, 0));
+
+        let dbg = self.debugger()?;
+        let data = dbg
+            .read_memory(module_idx, mem_idx, offset, count)
+            .ok_or_else(|| err("mem not found"))?;
+
+        self.send_response(
+            request_seq,
+            "readMemory",
+            json!({
+                "address": format!("0x{offset:x}"),
+                "data": base64::encode(data),
+            }),
+        )
+    }
+
     fn send_step_event(&mut self, result: StepResult) -> Result<()> {
+        self.send_event(
+            "memory",
+            // note: right now we're just hardcoding mod and mem idx
+            json!({ "memoryReference": "mem_0_0", "offset": 0, "count": 0 }),
+        )?;
+
         match result {
             StepResult::Stepped | StepResult::ReachedStart => {
                 self.send_event("stopped", json!({"reason": "step", "threadId": 1}))
@@ -454,9 +505,10 @@ enum Scope {
     Locals,
     Stack,
     Globals,
+    Memory,
 }
 
-const NUM_SCOPES: i64 = 3;
+const NUM_SCOPES: i64 = 4;
 
 impl Scope {
     const fn encode(&self, frame_id: i64) -> i64 {
@@ -464,6 +516,7 @@ impl Scope {
             Self::Locals => 0,
             Self::Stack => 1,
             Self::Globals => 2,
+            Self::Memory => 3,
         };
         frame_id * NUM_SCOPES + kind + 1
     }
@@ -474,6 +527,7 @@ impl Scope {
         let scope = match adjusted % NUM_SCOPES {
             1 => Self::Stack,
             2 => Self::Globals,
+            3 => Self::Memory,
             _ => Self::Locals,
         };
         (scope, frame_id)

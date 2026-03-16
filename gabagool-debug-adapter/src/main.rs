@@ -1,5 +1,6 @@
 #![warn(clippy::nursery)]
 
+mod base64;
 mod server;
 mod source_map;
 mod transport;
