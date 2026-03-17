@@ -54,6 +54,7 @@ impl DAPServer {
                 "variables" => self.handle_variables(request_seq, &msg)?,
                 "setBreakpoints" => self.handle_set_breakpoints(request_seq, &msg)?,
                 "next" | "stepIn" => self.handle_step_forward(request_seq, command)?,
+                "stepOut" => self.handle_step_out(request_seq)?,
                 "stepBack" => self.handle_step_back(request_seq)?,
                 "continue" => self.handle_continue(request_seq)?,
                 "reverseContinue" => self.handle_reverse_continue(request_seq)?,
@@ -386,6 +387,12 @@ impl DAPServer {
             "setBreakpoints",
             json!({ "breakpoints": result_bps }),
         )
+    }
+
+    fn handle_step_out(&mut self, request_seq: i64) -> Result<()> {
+        let result = self.debugger_mut()?.step_out().map_err(err)?;
+        self.send_response(request_seq, "stepOut", json!({}))?;
+        self.send_step_event(result)
     }
 
     fn handle_step_forward(&mut self, request_seq: i64, command: &str) -> Result<()> {
