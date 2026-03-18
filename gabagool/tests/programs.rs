@@ -3,7 +3,10 @@
 use gabagool::{Module, RawValue, Store};
 
 fn run_program(wasm_path: &str, func: &str, args: Vec<RawValue>) -> i32 {
-    let wasm = std::fs::read(wasm_path).unwrap();
+    let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap();
+    let wasm = std::fs::read(workspace_root.join(wasm_path)).unwrap();
     let module = Module::new(&wasm).unwrap();
     let mut store = Store::new();
     let instance = store.instantiate(&module, vec![]).unwrap();
@@ -16,7 +19,10 @@ fn run_program(wasm_path: &str, func: &str, args: Vec<RawValue>) -> i32 {
 }
 
 fn snapshot_roundtrip(wasm_path: &str, func: &str, args: Vec<RawValue>, fuel: u64) -> i32 {
-    let wasm = std::fs::read(wasm_path).unwrap();
+    let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap();
+    let wasm = std::fs::read(workspace_root.join(wasm_path)).unwrap();
     let module = Module::new(&wasm).unwrap();
     let mut store = Store::new();
     let instance = store.instantiate(&module, vec![]).unwrap();

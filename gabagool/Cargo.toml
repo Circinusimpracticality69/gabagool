@@ -1,0 +1,20 @@
+
+[package]
+name = "gabagool"
+description = "a snapshotable WASM interpreter"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+
+[dev-dependencies]
+insta = "1"
+
+[build-dependencies]
+wast = { version = "245.0.1", optional = true }
+
+[features]
+core-tests = ["wast"]
+component-tests = []
+debug = []

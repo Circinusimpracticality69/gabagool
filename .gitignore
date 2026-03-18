@@ -1,7 +1,7 @@
 target/
 gabagool-debug-adapter/bin/
-/tests/spec/
-/tests/components/
+gabagool/tests/spec/
+gabagool/tests/components/
 game-of-life*.gabagool
 programs/*.wat
 !programs/demo.wat

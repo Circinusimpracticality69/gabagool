@@ -326,7 +326,10 @@ mod tests {
     use crate::Module;
 
     fn setup_debugger(wasm_path: &str, func: &str, args: Vec<RawValue>) -> Debugger {
-        let wasm = std::fs::read(wasm_path).unwrap();
+        let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap();
+        let wasm = std::fs::read(workspace_root.join(wasm_path)).unwrap();
         let module = Module::new(&wasm).unwrap();
         let mut store = Store::new();
         let instance = store.instantiate(&module, vec![]).unwrap();

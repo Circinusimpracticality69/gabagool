@@ -1,10 +1,10 @@
 [package]
 name = "gabagool-debug-adapter"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 
 [dependencies]
-gabagool = { path = "..", features = ["debug"] }
+gabagool = { path = "../gabagool", features = ["debug"] }
 serde_json = "1"
 wast = "245"
 
