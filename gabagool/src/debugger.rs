@@ -139,14 +139,14 @@ impl Debugger {
                 locals: frame.locals.clone(),
                 local_types: cf.local_types.clone(),
                 source_position: {
-                    #[cfg(feature = "debug")]
+                    #[cfg(feature = "debugger")]
                     {
                         cf.source_positions
                             .get(frame.pc)
                             .copied()
                             .unwrap_or(frame.pc as u32)
                     }
-                    #[cfg(not(feature = "debug"))]
+                    #[cfg(not(feature = "debugger"))]
                     {
                         frame.pc as u32
                     }
@@ -593,7 +593,7 @@ mod tests {
         assert_eq!(dbg.instruction_count(), 0);
     }
 
-    #[cfg(feature = "debug")]
+    #[cfg(feature = "debugger")]
     #[test]
     fn test_step_back_preserves_source_positions() {
         let mut dbg = setup_debugger(

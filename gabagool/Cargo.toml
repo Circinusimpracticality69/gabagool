@@ -17,4 +17,4 @@ wast = { version = "245.0.1", optional = true }
 [features]
 core-tests = ["wast"]
 component-tests = []
-debug = []
+debugger = []

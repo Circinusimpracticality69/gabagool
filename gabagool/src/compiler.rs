@@ -60,11 +60,11 @@ struct Compiler<'a> {
     func_signatures: Vec<(usize, usize)>,
     tag_signatures: Vec<usize>,
     ops: Vec<CompilerOp>,
-    #[cfg(feature = "debug")]
+    #[cfg(feature = "debugger")]
     source_positions: Vec<u32>,
-    #[cfg(feature = "debug")]
+    #[cfg(feature = "debugger")]
     current_source_pos: u32,
-    #[cfg(feature = "debug")]
+    #[cfg(feature = "debugger")]
     next_source_pos: u32,
     block_stack: Vec<BlockContext>,
     stack_height: i32,
@@ -129,11 +129,11 @@ pub fn compile(module: &ParsedModule) -> ModuleCode {
                 func_signatures: func_signatures.clone(),
                 tag_signatures: tag_signatures.clone(),
                 ops: Vec::new(),
-                #[cfg(feature = "debug")]
+                #[cfg(feature = "debugger")]
                 source_positions: Vec::new(),
-                #[cfg(feature = "debug")]
+                #[cfg(feature = "debugger")]
                 current_source_pos: 0,
-                #[cfg(feature = "debug")]
+                #[cfg(feature = "debugger")]
                 next_source_pos: 0,
                 block_stack: Vec::new(),
                 stack_height: 0,
@@ -176,11 +176,11 @@ pub fn compile_function_into_code(
         func_signatures: Vec::new(),
         tag_signatures: Vec::new(),
         ops: Vec::new(),
-        #[cfg(feature = "debug")]
+        #[cfg(feature = "debugger")]
         source_positions: Vec::new(),
-        #[cfg(feature = "debug")]
+        #[cfg(feature = "debugger")]
         current_source_pos: 0,
-        #[cfg(feature = "debug")]
+        #[cfg(feature = "debugger")]
         next_source_pos: 0,
         block_stack: Vec::new(),
         stack_height: 0,
@@ -256,7 +256,7 @@ impl<'a> Compiler<'a> {
         self.emit_label(end_label);
         self.emit(Op::Return);
         self.strip_dead_labels();
-        #[cfg(not(feature = "debug"))]
+        #[cfg(not(feature = "debugger"))]
         self.fuse_ops();
 
         let assembled = self.assemble();
@@ -283,7 +283,7 @@ impl<'a> Compiler<'a> {
             num_args: num_args as u32,
             local_types,
             max_stack_height: self.max_stack_height as u32,
-            #[cfg(feature = "debug")]
+            #[cfg(feature = "debugger")]
             source_positions: std::mem::take(&mut self.source_positions),
         }
     }
@@ -296,13 +296,13 @@ impl<'a> Compiler<'a> {
 
     fn emit_label(&mut self, label: LabelId) {
         self.ops.push(CompilerOp::Label(label));
-        #[cfg(feature = "debug")]
+        #[cfg(feature = "debugger")]
         self.source_positions.push(u32::MAX);
     }
 
     fn emit(&mut self, op: Op) {
         self.ops.push(CompilerOp::Op(op));
-        #[cfg(feature = "debug")]
+        #[cfg(feature = "debugger")]
         self.source_positions.push(self.current_source_pos);
     }
 
@@ -399,9 +399,9 @@ impl<'a> Compiler<'a> {
 
         // resolve targets and strip labels
         let mut out = Vec::with_capacity(pos as usize);
-        #[cfg(feature = "debug")]
+        #[cfg(feature = "debugger")]
         let mut assembled_positions = Vec::with_capacity(pos as usize);
-        #[cfg(feature = "debug")]
+        #[cfg(feature = "debugger")]
         for (idx, cop) in self.ops.iter().enumerate() {
             if let CompilerOp::Op(mut op) = *cop {
                 Self::resolve_targets(&mut op, &label_positions);
@@ -409,7 +409,7 @@ impl<'a> Compiler<'a> {
                 assembled_positions.push(self.source_positions[idx]);
             }
         }
-        #[cfg(not(feature = "debug"))]
+        #[cfg(not(feature = "debugger"))]
         for cop in &self.ops {
             if let CompilerOp::Op(mut op) = *cop {
                 Self::resolve_targets(&mut op, &label_positions);
@@ -432,7 +432,7 @@ impl<'a> Compiler<'a> {
         }
 
         self.ops.clear();
-        #[cfg(feature = "debug")]
+        #[cfg(feature = "debugger")]
         {
             self.source_positions = assembled_positions;
         }
@@ -508,13 +508,13 @@ impl<'a> Compiler<'a> {
                 live[clause.target as usize] = true;
             }
         }
-        #[cfg(not(feature = "debug"))]
+        #[cfg(not(feature = "debugger"))]
         self.ops.retain(|cop| match cop {
             CompilerOp::Label(id) => live[id.0 as usize],
             _ => true,
         });
 
-        #[cfg(feature = "debug")]
+        #[cfg(feature = "debugger")]
         {
             let mut j = 0;
             for i in 0..self.ops.len() {
@@ -533,7 +533,7 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    #[cfg(not(feature = "debug"))]
+    #[cfg(not(feature = "debugger"))]
     fn fuse_ops(&mut self) {
         let mut out = Vec::with_capacity(self.ops.len());
         let mut i = 0;
@@ -1130,7 +1130,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn compile_instruction(&mut self, instr: &Instruction) {
-        #[cfg(feature = "debug")]
+        #[cfg(feature = "debugger")]
         {
             self.current_source_pos = self.next_source_pos;
             self.next_source_pos += 1;

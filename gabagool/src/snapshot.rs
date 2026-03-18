@@ -635,7 +635,7 @@ impl Snapshot for CompiledFunction {
         self.num_args.encode(buf);
         self.local_types.encode(buf);
         self.max_stack_height.encode(buf);
-        #[cfg(feature = "debug")]
+        #[cfg(feature = "debugger")]
         self.source_positions.encode(buf);
     }
     fn decode(buf: &mut &[u8]) -> Self {
@@ -646,7 +646,7 @@ impl Snapshot for CompiledFunction {
             num_args: u32::decode(buf),
             local_types: Vec::<ValueType>::decode(buf),
             max_stack_height: u32::decode(buf),
-            #[cfg(feature = "debug")]
+            #[cfg(feature = "debugger")]
             source_positions: Vec::<u32>::decode(buf),
         }
     }

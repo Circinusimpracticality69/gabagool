@@ -2590,7 +2590,7 @@ impl Store {
         let max_stack_height = ops.len() as u32;
 
         let cf = CompiledFunction {
-            #[cfg(feature = "debug")]
+            #[cfg(feature = "debugger")]
             source_positions: vec![0; ops.len()],
             ops,
             type_index: 0,
