@@ -320,7 +320,7 @@ impl Debugger {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "jit")))]
 mod tests {
     use super::*;
     use crate::Module;

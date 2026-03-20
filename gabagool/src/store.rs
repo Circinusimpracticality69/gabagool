@@ -5,6 +5,8 @@ use std::sync::Arc;
 
 use crate::compiler::ModuleCode;
 use crate::error::{Error, Result};
+#[cfg(feature = "jit")]
+use crate::jit::assembler::JitFunction;
 use crate::{
     compiler, ensure, instantiation_err, trap, AddrType, DataMode, ElementMode, ImportDescription,
     Instruction, Module, Mutability, Trap,
@@ -227,6 +229,8 @@ pub struct InstantiatedModule {
     pub elem_addrs: Vec<usize>,
     pub data_addrs: Vec<usize>,
     pub exports: Vec<ExportInstance>,
+    #[cfg(feature = "jit")]
+    pub jit_functions: Vec<Option<JitFunction>>,
 }
 
 /// The runtime state for all instantiated WASM modules
@@ -800,6 +804,9 @@ impl Store {
             elem_addrs: module_instance.elem_addrs.clone(),
             data_addrs: module_instance.data_addrs.clone(),
             exports: module_instance.exports.clone(),
+
+            #[cfg(feature = "jit")]
+            jit_functions: Vec::new(),
         };
 
         // build a mapping from func_addr to (instance_idx, compiled func index)
@@ -837,6 +844,18 @@ impl Store {
                     self.func_addr_to_module[addr] = Some((instance_idx, idx as u32));
                 }
             }
+        }
+
+        #[cfg(feature = "jit")]
+        {
+            use crate::jit::assembler::assemble;
+
+            entity.jit_functions = entity
+                .code
+                .compiled_funcs
+                .iter()
+                .map(|cf| assemble(&cf.ops))
+                .collect();
         }
 
         self.instances.push(entity);
@@ -1049,6 +1068,55 @@ impl Store {
         });
 
         Ok(false)
+    }
+
+    #[cfg(feature = "jit")]
+    fn run_jit(&mut self) -> Result<RunOutcome> {
+        loop {
+            use crate::jit::{Exit, StencilContext};
+
+            let depth = match self.call_stack.len() {
+                0 => return Ok(RunOutcome::Completed),
+                n => n - 1,
+            };
+
+            let mi = self.call_stack[depth].module_idx as usize;
+            let func_idx = self.call_stack[depth].compiled_func_idx;
+            let pc = self.call_stack[depth].pc;
+
+            let Some(jit_function) = &self.instances[mi].jit_functions[func_idx as usize] else {
+                return self.run();
+            };
+
+            let mut ctx = StencilContext {
+                stack: self.stack.as_mut_ptr() as *mut u64,
+                stack_pointer: self.stack.len() as u64,
+                locals: self.call_stack[depth].locals.as_mut_ptr() as *mut u64,
+                mem_base: std::ptr::null_mut(),
+                mem_len: 0,
+                globals: std::ptr::null_mut(),
+                imm_table: jit_function.imm_table.as_ptr(),
+                fn_table: jit_function.fn_table.as_ptr(),
+                pc: pc as u32,
+                snapshot_flag: 0,
+                exit_reason: 0,
+                exit_value: 0,
+            };
+
+            unsafe { (jit_function.fn_table[pc])(&mut ctx) };
+
+            self.stack.truncate(ctx.stack_pointer as usize);
+            self.call_stack[depth].pc = ctx.pc as usize;
+
+            match ctx.exit_reason.into() {
+                Exit::Return => {
+                    self.do_return(depth);
+                }
+                Exit::Snapshot => {
+                    return Ok(RunOutcome::FuelExhausted);
+                }
+            }
+        }
     }
 
     fn run(&mut self) -> Result<RunOutcome> {

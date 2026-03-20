@@ -773,6 +773,8 @@ impl Snapshot for InstantiatedModule {
             elem_addrs: Vec::<usize>::decode(buf),
             data_addrs: Vec::<usize>::decode(buf),
             exports: Vec::<ExportInstance>::decode(buf),
+            #[cfg(feature = "jit")]
+            jit_functions: todo!(),
         }
     }
 }

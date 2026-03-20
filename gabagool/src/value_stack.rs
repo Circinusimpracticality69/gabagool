@@ -142,4 +142,8 @@ impl ValueStack {
             cursor,
         }
     }
+
+    pub fn as_mut_ptr(&mut self) -> *mut RawValue {
+        self.inner.as_mut_ptr()
+    }
 }

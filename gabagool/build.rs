@@ -24,6 +24,19 @@ fn main() {
         )
         .unwrap();
     }
+
+    #[cfg(feature = "jit")]
+    jit::generate();
+
+    #[cfg(not(feature = "jit"))]
+    {
+        let out_dir = std::env::var("OUT_DIR").unwrap();
+        std::fs::write(
+            std::path::Path::new(&out_dir).join("stencils_generated.rs"),
+            "",
+        )
+        .unwrap();
+    }
 }
 
 #[cfg(feature = "component-tests")]
@@ -605,5 +618,81 @@ mod spec_tests {
             })
             .collect();
         rendered.map(|v| v.join(", "))
+    }
+}
+
+#[cfg(feature = "jit")]
+mod jit {
+    use std::{env, fs, path::Path};
+
+    use object::{Object, ObjectSection, ObjectSymbol, SymbolKind};
+
+    const STENCIL_NAMES: &[&str] = &["nop", "i32_const", "return_"];
+
+    pub fn generate() {
+        println!("cargo::rerun-if-changed=../gabagool-stencils/src/stencils.c");
+        println!("cargo::rerun-if-changed=../gabagool-stencils/src/stencil_context.h");
+
+        let out_dir = env::var("OUT_DIR").unwrap();
+
+        let objects = cc::Build::new()
+            .file("../gabagool-stencils/src/stencils.c")
+            .include("../gabagool-stencils/src")
+            .opt_level(3)
+            .flag("-fno-stack-protector")
+            .flag("-fno-asynchronous-unwind-tables")
+            .flag("-fno-exceptions")
+            .cargo_metadata(false)
+            .compile_intermediates();
+
+        let objects = objects.first().expect("expect .o file");
+
+        let obj_data = fs::read(objects).expect("should exist");
+        let obj_file = object::File::parse(&*obj_data).expect("should parse");
+
+        let text_section = obj_file
+            .sections()
+            .find(|s| s.name() == Ok("__text") || s.name() == Ok(".text"))
+            .expect("text section should exist");
+
+        let text_data = text_section.data().unwrap();
+        let text_addr = text_section.address();
+
+        let mut sym_addrs = obj_file
+            .symbols()
+            .filter(|s| s.kind() == SymbolKind::Text && s.section_index().is_some())
+            .filter_map(|s| Some((s.name().ok()?, s.address())))
+            .collect::<Vec<_>>();
+
+        sym_addrs.sort_by_key(|&(_, a)| a);
+
+        let mut generated = String::new();
+
+        for stencil in STENCIL_NAMES {
+            let prefixed = format!("_{}", stencil);
+            let idx = sym_addrs
+                .iter()
+                .position(|&(name, _addr)| name == *stencil || name == prefixed)
+                .unwrap_or_else(|| panic!("symbol {stencil} not found"));
+
+            let addr = sym_addrs[idx].1;
+            let next_addr = sym_addrs
+                .get(idx + 1)
+                .map(|s| s.1)
+                .unwrap_or(text_addr + text_data.len() as u64);
+
+            let offset = (addr - text_addr) as usize;
+            let size = (next_addr - addr) as usize;
+
+            let bs = text_data.get(offset..offset + size).expect("valid bytes");
+
+            generated.push_str(&format!(
+                "pub const STENCIL_{}: &[u8] = &{:?};\n",
+                stencil.to_uppercase(),
+                bs,
+            ));
+        }
+
+        fs::write(Path::new(&out_dir).join("stencils_generated.rs"), generated).unwrap();
     }
 }

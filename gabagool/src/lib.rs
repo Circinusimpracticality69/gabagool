@@ -14,6 +14,9 @@ pub mod snapshot;
 mod store;
 pub mod value_stack;
 
+#[cfg(feature = "jit")]
+mod jit;
+
 pub use binary_grammar::*;
 pub use error::*;
 pub use execution_grammar::*;
